@@ -326,6 +326,7 @@ struct GLObject {
     if (vao) glDeleteVertexArrays(1, &vao.inner);
   }
 
+  // Movable but not Copyable
   GLObject(GLObject&&) = default;
   GLObject(const GLObject&) = delete;
   GLObject& operator=(GLObject&&) = default;
@@ -397,7 +398,7 @@ GLObject create_colored_quad(const GLShader& shader)
 }
 
 /// Upload new textured Quad object to GPU memory
-GLObject create_texture_quad(const GLShader& shader)
+GLObject create_textured_quad(const GLShader& shader)
 {
   GLuint vbo, ebo, vao;
   glGenBuffers(1, &vbo);
@@ -424,13 +425,14 @@ struct GLTexture {
     if (id) glDeleteTextures(1, &id.inner);
   }
 
+  // Movable but not Copyable
   GLTexture(GLTexture&&) = default;
   GLTexture(const GLTexture&) = delete;
   GLTexture& operator=(GLTexture&&) = default;
   GLTexture& operator=(const GLTexture&) = delete;
 };
 
-/// Read and upload texture to GPU memory
+/// Read file and upload texture to GPU memory
 auto load_rgba_texture(const std::string& inpath) -> std::optional<GLTexture>
 {
   const std::string filepath = SPACESHIP_ASSETS_PATH + "/"s + inpath;
@@ -461,6 +463,13 @@ struct Transform {
   glm::vec3 position;
   glm::vec3 scale;
   glm::quat rotation;
+
+  glm::mat4 model_mat() {
+    glm::mat4 translation_mat = glm::translate(glm::mat4(1.0f), position);
+    glm::mat4 rotation_mat = glm::toMat4(rotation);
+    glm::mat4 scale_mat = glm::scale(glm::mat4(1.0f), scale);
+    return translation_mat * rotation_mat * scale_mat;
+  }
 };
 
 /// Prepare to render
@@ -484,44 +493,16 @@ void set_camera(const GLShader& shader)
 }
 
 /// Render a GLObject with indices
-void render_object(const GLShader& shader, const GLObject& obj)
+void render_object(const GLShader& shader, const GLObject& obj, const glm::mat4& model)
 {
-  auto transform = Transform{
-    .position = glm::vec3(0.45f, 0.0f, 0.0f),
-    .scale = glm::vec3(0.3f),
-    .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
-  };
-
-  float dt = glfwGetTime();
-  transform.position.y = std::sin(dt) * 0.4f;
-
-  glm::mat4 translation = glm::translate(glm::mat4(1.0f), transform.position);
-  glm::mat4 rotation = glm::toMat4(transform.rotation);
-  glm::mat4 scale = glm::scale(glm::mat4(1.0f), transform.scale);
-  glm::mat4 model = translation * rotation * scale;
-
   glUniformMatrix4fv(shader.unif_loc(GLUnif::MODEL), 1, GL_FALSE, glm::value_ptr(model));
   glBindVertexArray(obj.vao);
   glDrawElements(GL_TRIANGLES, obj.num_indices, GL_UNSIGNED_SHORT, nullptr);
 }
 
 /// Render a textured GLObject with indices
-void render_textured_object(const GLShader& shader, const GLTexture& texture, const GLObject& obj)
+void render_textured_object(const GLShader& shader, const GLTexture& texture, const GLObject& obj, const glm::mat4& model)
 {
-  auto transform = Transform{
-    .position = glm::vec3(-0.45f, 0.0f, 0.0f),
-    .scale = glm::vec3(0.3f),
-    .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
-  };
-
-  float dt = glfwGetTime();
-  transform.position.y = std::sin(dt) * 0.4f;
-
-  glm::mat4 translation = glm::translate(glm::mat4(1.0f), transform.position);
-  glm::mat4 rotation = glm::toMat4(transform.rotation);
-  glm::mat4 scale = glm::scale(glm::mat4(1.0f), transform.scale);
-  glm::mat4 model = translation * rotation * scale;
-
   glUniformMatrix4fv(shader.unif_loc(GLUnif::MODEL), 1, GL_FALSE, glm::value_ptr(model));
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, texture.id);
@@ -531,59 +512,79 @@ void render_textured_object(const GLShader& shader, const GLTexture& texture, co
 
 /// Generic Scene structure
 struct Scene {
+  Transform colored_quad_transform;
+  Transform spaceship_transform;
   std::optional<GLObject> colored_quad;
   std::optional<GLObject> spaceship_quad;
   std::optional<GLTexture> spaceship_tex;
 };
 
-/// Game Engine
-struct Engine {
+/// Game State/Engine
+struct Game {
   std::optional<Shaders> shaders;
   std::optional<Scene> scene;
 };
 
-int game_init(Engine& engine)
+int game_init(Game& game)
 {
-  engine.shaders = load_shaders();
-  engine.scene = Scene{};
-  engine.scene->colored_quad = create_colored_quad(engine.shaders->color_shader);
-  DEBUG("Generated colored Quad");
-  engine.scene->spaceship_tex = load_rgba_texture("spaceship.png");
-  ASSERT(engine.scene->spaceship_tex);
-  DEBUG("Generated Spaceship Texture");
-  engine.scene->spaceship_quad = create_texture_quad(engine.shaders->texture_shader);
-  DEBUG("Generated Spaceship Quad");
+  game.shaders = load_shaders();
+  game.scene = Scene{};
+
+  game.scene->colored_quad_transform = Transform{
+    .position = glm::vec3(0.45f, 0.0f, 0.0f),
+    .scale = glm::vec3(0.3f),
+    .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
+  };
+
+  game.scene->spaceship_transform = Transform{
+    .position = glm::vec3(-0.45f, 0.0f, 0.0f),
+    .scale = glm::vec3(0.3f),
+    .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
+  };
+
+  DEBUG("Loading colored Quad");
+  game.scene->colored_quad = create_colored_quad(game.shaders->color_shader);
+
+  DEBUG("Loading Spaceship Texture");
+  game.scene->spaceship_tex = load_rgba_texture("spaceship.png");
+  ASSERT(game.scene->spaceship_tex);
+
+  DEBUG("Loading Spaceship Quad");
+  game.scene->spaceship_quad = create_textured_quad(game.shaders->texture_shader);
   return 0;
 }
 
-void game_update(Engine& engine)
+void game_update(Game& game)
 {
+  float dt = glfwGetTime();
+  game.scene->colored_quad_transform.position.y = std::sin(dt) * -0.4f;
+  game.scene->spaceship_transform.position.y = std::sin(dt) * 0.4f;
 }
 
-void game_render(Engine& engine)
+void game_render(Game& game)
 {
   begin_render();
 
-  GLShader& color_shader = engine.shaders->color_shader;
+  GLShader& color_shader = game.shaders->color_shader;
   color_shader.bind();
   set_camera(color_shader);
-  render_object(color_shader, *engine.scene->colored_quad);
+  render_object(color_shader, *game.scene->colored_quad, game.scene->colored_quad_transform.model_mat());
 
-  GLShader& texture_shader = engine.shaders->texture_shader;
+  GLShader& texture_shader = game.shaders->texture_shader;
   texture_shader.bind();
   set_camera(texture_shader);
-  render_textured_object(texture_shader, *engine.scene->spaceship_tex, *engine.scene->spaceship_quad);
+  render_textured_object(texture_shader, *game.scene->spaceship_tex, *game.scene->spaceship_quad, game.scene->spaceship_transform.model_mat());
 }
 
 int game_loop(GLFWwindow* window)
 {
   int ret = 0;
-  Engine engine;
-  ret = game_init(engine);
+  Game game;
+  ret = game_init(game);
   if (ret) return ret;
   while (!glfwWindowShouldClose(window)) {
-    game_update(engine);
-    game_render(engine);
+    game_update(game);
+    game_render(game);
     glfwSwapBuffers(window);
     glfwPollEvents();
   }
