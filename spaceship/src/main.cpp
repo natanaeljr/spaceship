@@ -27,8 +27,52 @@ using namespace gl;
   } while (0)
 #define ASSERT(cond) ASSERT_MSG(cond, "Assertion failed: ({})", #cond)
 
+int create_window(GLFWwindow*& window)
+{
+  glfwInit();
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+  window = glfwCreateWindow(480, 720, "Spaceship", nullptr, nullptr);
+  if (window == nullptr) {
+    std::cerr << "Failed to create GLFW window" << std::endl;
+    glfwTerminate();
+    return -3;
+  }
+
+  glfwMakeContextCurrent(window);
+  //glfwSetWindowUserPointer(window, &state);
+
+  // callbacks
+  //glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+  //glfwSetKeyCallback(window, key_callback);
+  //glfwSetCursorPosCallback(window, cursor_position_callback);
+  //glfwSetMouseButtonCallback(window, mouse_button_callback);
+  //glfwSetScrollCallback(window, scroll_callback);
+
+  // settings
+  int width, height;
+  glfwGetWindowSize(window, &width, &height);
+  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+  glfwSwapInterval(1);  // enable/disable vsync
+
+  return 0;
+}
+
+int game_loop(GLFWwindow* window)
+{
+  while (!glfwWindowShouldClose(window)) {
+    glfwSwapBuffers(window);
+    glfwPollEvents();
+  }
+
+  return 0;
+}
+
 int main(int argc, char *argv[])
 {
+  int ret = 0;
   auto log_level = spdlog::level::trace;
 
   // Parse Arguments ===========================================================
@@ -51,45 +95,23 @@ int main(int argc, char *argv[])
   spdlog::set_default_logger(spdlog::stdout_color_mt("main"));
   spdlog::set_pattern("%Y-%m-%d %T.%e <%^%l%$> [%n] %s:%#: %!() -> %v");
   spdlog::set_level(log_level);
+  INFO("Initializing..");
 
-  INFO("Initializing...");
+  // Create Window =============================================================
+  GLFWwindow* window = nullptr;
+  ret = create_window(window);
+  if (ret) return ret;
 
-  // Spawn Window ==============================================================
-  glfwInit();
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-  GLFWwindow* window = glfwCreateWindow(480, 720, "Spaceship", nullptr, nullptr);
-  if (window == nullptr) {
-    std::cerr << "Failed to create GLFW window" << std::endl;
-    glfwTerminate();
-    return -3;
-  }
-  glfwMakeContextCurrent(window);
-  //glfwSetWindowUserPointer(window, &state);
-  // callbacks
-  //glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-  //glfwSetKeyCallback(window, key_callback);
-  //glfwSetCursorPosCallback(window, cursor_position_callback);
-  //glfwSetMouseButtonCallback(window, mouse_button_callback);
-  //glfwSetScrollCallback(window, scroll_callback);
-  // settings
-  int width, height;
-  glfwGetWindowSize(window, &width, &height);
-  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-  glfwSwapInterval(0);  // disable vsync
-
+  // Load GL ===================================================================
   glbinding::initialize(glfwGetProcAddress);
 
-  while (!glfwWindowShouldClose(window)) {
-    glfwSwapBuffers(window);
-    glfwPollEvents();
-  }
+  // Game Loop =================================================================
+  ret = game_loop(window);
 
+  // End =======================================================================
+  INFO("Terminating..");
   glfwTerminate();
 
-  INFO("Terminating");
-
-  return 0;
+  INFO("Exit");
+  return ret;
 }
