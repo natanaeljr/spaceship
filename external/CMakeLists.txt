@@ -41,3 +41,25 @@ ExternalProject_Add(glfw_external
         -DGLFW_BUILD_DOCS=OFF
         -DGLFW_BUILD_TESTS=OFF
         -DGLFW_BUILD_EXAMPLES=OFF)
+
+#########################################################################################
+# glbinding
+#########################################################################################
+# glbinding is a cross-platform C++ binding for the OpenGL API.
+# glbinding leverages C++11 features like enum classes, lambdas, and variadic templates,
+# instead of relying on macros.
+# glbinding is licensed under the MIT license.
+message(STATUS "Adding external library: glbinding")
+ExternalProject_Add(glbinding_external
+    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/glbinding
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glbinding
+    INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+        -DCMAKE_GENERATOR=${CMAKE_GENERATOR}
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DBUILD_SHARED_LIBS=OFF
+        -DOPTION_BUILD_TOOLS=OFF
+        -DOPTION_BUILD_EXAMPLES=OFF
+        -DOPTION_SELF_CONTAINED=ON
+        -DOPTION_BUILD_OWN_KHR_HEADERS=ON)

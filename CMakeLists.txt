@@ -42,4 +42,5 @@ ExternalProject_Add(spaceship
         -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
     DEPENDS
         spdlog_external
-        glfw_external)
+        glfw_external
+        glbinding_external)

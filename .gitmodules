@@ -4,3 +4,6 @@
 [submodule "external/glfw"]
 	path = external/glfw
 	url = https://github.com/glfw/glfw.git
+[submodule "external/glbinding"]
+	path = external/glbinding
+	url = https://github.com/cginternals/glbinding.git

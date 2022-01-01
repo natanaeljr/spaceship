@@ -41,6 +41,8 @@ find_package(OpenGL REQUIRED)
 find_package(spdlog 1.9.2 EXACT REQUIRED)
 # GLFW for desktop windowing and input
 find_package(glfw3 3.3.6 EXACT REQUIRED)
+# GLBinding for C++ binding of the OpenGL API
+find_package(glbinding REQUIRED)
 
 #########################################################################################
 # Project
@@ -55,6 +57,8 @@ target_sources(spaceship PRIVATE
 target_link_libraries(spaceship PRIVATE
     spdlog::spdlog
     glfw
+    glbinding::glbinding
+    glbinding::glbinding-aux
     OpenGL::GL
 )
 target_compile_definitions(spaceship PRIVATE
