@@ -43,4 +43,5 @@ ExternalProject_Add(spaceship
     DEPENDS
         spdlog_external
         glfw_external
-        glbinding_external)
+        glbinding_external
+        glm_external)

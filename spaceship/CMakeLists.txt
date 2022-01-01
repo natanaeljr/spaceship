@@ -43,6 +43,8 @@ find_package(spdlog 1.9.2 EXACT REQUIRED)
 find_package(glfw3 3.3.6 EXACT REQUIRED)
 # GLBinding for C++ binding of the OpenGL API
 find_package(glbinding REQUIRED)
+# GLM for opengl mathematics library
+find_package(glm 0.9.9.9 EXACT REQUIRED)
 
 #########################################################################################
 # Project
@@ -55,6 +57,7 @@ target_sources(spaceship PRIVATE
     src/main.cpp
 )
 target_link_libraries(spaceship PRIVATE
+    glm::glm
     spdlog::spdlog
     glfw
     glbinding::glbinding

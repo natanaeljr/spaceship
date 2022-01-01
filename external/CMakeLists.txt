@@ -63,3 +63,22 @@ ExternalProject_Add(glbinding_external
         -DOPTION_BUILD_EXAMPLES=OFF
         -DOPTION_SELF_CONTAINED=ON
         -DOPTION_BUILD_OWN_KHR_HEADERS=ON)
+
+#########################################################################################
+# GLM
+#########################################################################################
+# OpenGL Mathematics (GLM) is a header only C++ mathematics library for
+# graphics software based on the OpenGL Shading Language (GLSL) specifications.
+# GLM is licensed under The Happy Bunny License (Modified MIT License) or MIT License.
+message(STATUS "Adding external library: GLM")
+ExternalProject_Add(glm_external
+    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/glm
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glm
+    INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+        -DCMAKE_GENERATOR=${CMAKE_GENERATOR}
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DBUILD_SHARED_LIBS=OFF
+        -DBUILD_STATIC_LIBS=ON
+        -DGLM_TEST_ENABLE=OFF)
