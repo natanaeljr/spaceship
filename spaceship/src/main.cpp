@@ -3,6 +3,7 @@
 #include <iostream>
 #include <optional>
 #include <variant>
+#include <algorithm>
 
 #include <glbinding/gl33core/gl.h>
 #include <glbinding/glbinding.h>
@@ -325,9 +326,12 @@ void render_object(const GLShader& shader, const GLObject& obj)
 {
   auto transform = Transform{
     .position = glm::vec3(0.0f, 0.0f, 0.0f),
-    .scale = glm::vec3(0.5f),
+    .scale = glm::vec3(0.4f),
     .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
   };
+
+  float dt = glfwGetTime();
+  transform.position.y = std::sin(dt) * 0.4f;
 
   glm::mat4 translation = glm::translate(glm::mat4(1.0f), transform.position);
   glm::mat4 rotation = glm::toMat4(transform.rotation);
@@ -353,6 +357,7 @@ int game_init(Engine& engine)
   engine.shaders = load_shaders();
   engine.scene = Scene{};
   engine.scene->quad = create_colored_quad(engine.shaders->color_shader);
+  DEBUG("Generated colored Quad");
 
   return 0;
 }
@@ -422,7 +427,7 @@ int create_window(GLFWwindow*& window)
   // settings
   int width, height;
   glfwGetWindowSize(window, &width, &height);
-  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+  //glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   glfwSwapInterval(1);  // enable/disable vsync
 
   return 0;
