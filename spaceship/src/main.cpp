@@ -20,33 +20,39 @@ using namespace gl;
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#define CRITICAL SPDLOG_CRITICAL
-#define ERROR SPDLOG_ERROR
-#define WARN SPDLOG_WARN
-#define INFO SPDLOG_INFO
-#define DEBUG SPDLOG_DEBUG
 #define TRACE SPDLOG_TRACE
-
-#define ASSERT_MSG(cond, ...)                                                  \
-  do {                                                                         \
-    if (cond) {                                                                \
-    } else {                                                                   \
-      CRITICAL(__VA_ARGS__);                                                   \
-      abort();                                                                 \
-    }                                                                          \
+#define DEBUG SPDLOG_DEBUG
+#define INFO SPDLOG_INFO
+#define WARN SPDLOG_WARN
+#define ERROR SPDLOG_ERROR
+#define CRITICAL SPDLOG_CRITICAL
+#define ABORT_MSG(...)         \
+  do {                         \
+    CRITICAL(__VA_ARGS__);     \
+    std::abort();              \
+  } while (0)
+#define ASSERT_MSG(cond, ...)  \
+  do {                         \
+    if (cond) {                \
+    } else {                   \
+      ABORT_MSG(__VA_ARGS__);  \
+    }                          \
   } while (0)
 #define ASSERT(cond) ASSERT_MSG(cond, "Assertion failed: ({})", #cond)
 
+/// Utility type to make unique numbers (IDs) movable, when moved the value should be zero
 template<typename T>
-struct MoveNum {
-  T num;
-  MoveNum(T n) : num(n) {}
-  MoveNum(MoveNum&& o) : num(o.num) { o.num = 0; }
-  MoveNum& operator=(MoveNum&& o) { num = o.num; o.num = 0; return *this; }
-  operator T() const { return num; }
+struct UniqueNum {
+  T inner;
+  UniqueNum(T n) : inner(n) {}
+  UniqueNum(UniqueNum&& o) : inner(o.inner) { o.inner = 0; }
+  UniqueNum& operator=(UniqueNum&& o) { inner = o.inner; o.inner = 0; return *this; }
+  UniqueNum(const UniqueNum&) = delete;
+  UniqueNum& operator=(const UniqueNum&) = delete;
+  operator T() const { return inner; }
 };
 
-/// Enumeration of supported Attributes
+/// Enumeration of supported Shader Attributes
 enum class GLAttr {
   POSITION,
   COLOR,
@@ -55,7 +61,7 @@ enum class GLAttr {
   COUNT, // must be last
 };
 
-/// Enumeration of supported Uniforms
+/// Enumeration of supported Shader Uniforms
 enum class GLUnif {
   COLOR,
   MODEL,
@@ -65,13 +71,12 @@ enum class GLUnif {
   COUNT, // must be last
 };
 
-/// GLShader represents an OpenGL shader program with utility functions
-/// to build the shader, bind/unbind, get uniform and attribute location and trace requests/execution.
+/// GLShader represents an OpenGL shader program
 class GLShader final {
   /// Program name
   std::string name_;
   /// Program ID
-  MoveNum<unsigned int> id_;
+  UniqueNum<unsigned int> id_;
   /// Attributes' location
   std::array<GLint, static_cast<size_t>(GLAttr::COUNT)> attrs_ = { -1 };
   /// Uniforms' location
@@ -79,14 +84,15 @@ class GLShader final {
 
   public:
   explicit GLShader(std::string name) : name_(std::move(name)), id_(glCreateProgram()) {
-    TRACE("New GLShader program '{}' [{}]", name_, id_);
+    TRACE("New GLShader program '{}'[{}]", name_, id_);
   }
   ~GLShader() {
     if (id_) {
       glDeleteProgram(id_);
-      TRACE("Delete GLShader program '{}' [{}]", name_, id_);
+      TRACE("Delete GLShader program '{}'[{}]", name_, id_);
     }
   }
+  // Movable but not Copyable
   GLShader(GLShader&& o) = default;
   GLShader(const GLShader&) = delete;
   GLShader& operator=(GLShader&&) = default;
@@ -109,53 +115,51 @@ class GLShader final {
   /// Load attributes' location into local array
   void load_attr_loc(GLAttr attr, std::string_view attr_name)
   {
-    const GLint new_loc = glGetAttribLocation(id_, attr_name.data());
-    if (new_loc == -1) {
-      CRITICAL("Failed to get location for attribute '{}' from GLShader '{}' [{}]", attr_name, name_, id_);
-      std::abort();
-    }
-    attrs_[static_cast<size_t>(attr)] = new_loc;
+    const GLint loc = glGetAttribLocation(id_, attr_name.data());
+    if (loc == -1)
+      ABORT_MSG("Failed to get location for attribute '{}' GLShader '{}'[{}]", attr_name, name_, id_);
+    DEBUG("Loaded attritube '{}' location {} GLShader '{}'[{}]", attr_name, loc, name_, id_);
+    attrs_[static_cast<size_t>(attr)] = loc;
   }
 
   /// Load uniforms' location into local array
   void load_unif_loc(GLUnif unif, std::string_view unif_name)
   {
-    const GLint new_loc = glGetUniformLocation(id_, unif_name.data());
-    if (new_loc == -1) {
-      CRITICAL("Failed to get location for uniform '{}' from GLShader '{}' [{}]", unif_name, name_, id_);
-      std::abort();
-    }
-    unifs_[static_cast<size_t>(unif)] = new_loc;
+    const GLint loc = glGetUniformLocation(id_, unif_name.data());
+    if (loc == -1)
+      ABORT_MSG("Failed to get location for uniform '{}' GLShader '{}'[{}]", unif_name, name_, id_);
+    DEBUG("Loaded uniform '{}' location {} GLShader '{}'[{}]", unif_name, loc, name_, id_);
+    unifs_[static_cast<size_t>(unif)] = loc;
   }
 
   public:
-  /// Build the shader program from sources
+  /// Build a shader program from sources
   static auto build(std::string name, std::string_view vert_src, std::string_view frag_src) -> std::optional<GLShader>
   {
-    auto vertex = compile_shader(GL_VERTEX_SHADER, vert_src.data());
-    auto fragment = compile_shader(GL_FRAGMENT_SHADER, frag_src.data());
+    auto shader = GLShader(std::move(name));
+    auto vertex = shader.compile(GL_VERTEX_SHADER, vert_src.data());
+    auto fragment = shader.compile(GL_FRAGMENT_SHADER, frag_src.data());
     if (!vertex || !fragment) {
-      ERROR("Failed to Compile Shaders");
+      ERROR("Failed to Compile Shaders for program '{}'[{}]", shader.name_, shader.id_);
       if (vertex) glDeleteShader(*vertex);
       if (fragment) glDeleteShader(*fragment);
       return std::nullopt;
     }
-    auto shader = GLShader(name);
-    if (!link_shader(shader.id_, *vertex, *fragment)) {
-      ERROR("Failed to Link GLShader program");
+    if (!shader.link(*vertex, *fragment)) {
+      ERROR("Failed to Link GLShader program '{}'[{}]", shader.name_, shader.id_);
       glDeleteShader(*vertex);
       glDeleteShader(*fragment);
       return std::nullopt;
     }
     glDeleteShader(*vertex);
     glDeleteShader(*fragment);
-    DEBUG("Compiled & Linked shader program '{}' [{}]", shader.name_, shader.id_);
+    DEBUG("Compiled & Linked shader program '{}'[{}]", shader.name_, shader.id_);
     return shader;
   }
 
   private:
-  /// Compile single shader from sources
-  static auto compile_shader(GLenum shader_type, const char* shader_src) -> std::optional<GLuint>
+  /// Compile a single shader from sources
+  auto compile(GLenum shader_type, const char* shader_src) -> std::optional<GLuint>
   {
     GLuint shader = glCreateShader(shader_type);
     glShaderSource(shader, 1, &shader_src, nullptr);
@@ -165,12 +169,12 @@ class GLShader final {
     if (info_len) {
       auto info = std::make_unique<char[]>(info_len);
       glGetShaderInfoLog(shader, info_len, nullptr, info.get());
-      DEBUG("{} Compilation Output:\n{}", shader_type_str(shader_type), info.get());
+      DEBUG("GLShader '{}'[{}] Compilation Output {}:\n{}", name_, id_, shader_type_str(shader_type), info.get());
     }
     GLint compiled = 0;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
     if (!compiled) {
-      ERROR("Failed to Compile {}", shader_type_str(shader_type));
+      ERROR("Failed to Compile {} for GLShader '{}'[{}]", shader_type_str(shader_type), name_, id_);
       glDeleteShader(shader);
       return std::nullopt;
     }
@@ -178,24 +182,24 @@ class GLShader final {
   }
 
   /// Link shaders into program object
-  static bool link_shader(GLuint program, GLuint vert, GLuint frag)
+  bool link(GLuint vert, GLuint frag)
   {
-    glAttachShader(program, vert);
-    glAttachShader(program, frag);
-    glLinkProgram(program);
+    glAttachShader(id_, vert);
+    glAttachShader(id_, frag);
+    glLinkProgram(id_);
     GLint info_len = 0;
-    glGetProgramiv(program, GL_INFO_LOG_LENGTH, &info_len);
+    glGetProgramiv(id_, GL_INFO_LOG_LENGTH, &info_len);
     if (info_len) {
       auto info = std::make_unique<char[]>(info_len);
-      glGetProgramInfoLog(program, info_len, nullptr, info.get());
-      DEBUG("GLShader Program Link Output:\n{}", info.get());
+      glGetProgramInfoLog(id_, info_len, nullptr, info.get());
+      DEBUG("GLShader '{}'[{}] Program Link Output:\n{}", name_, id_, info.get());
     }
     GLint link_status = 0;
-    glGetProgramiv(program, GL_LINK_STATUS, &link_status);
+    glGetProgramiv(id_, GL_LINK_STATUS, &link_status);
     if (!link_status)
-      ERROR("Failed to Link GLShader Program");
-    glDetachShader(program, vert);
-    glDetachShader(program, frag);
+      ERROR("Failed to Link GLShader Program '{}'[{}]", name_, id_);
+    glDetachShader(id_, vert);
+    glDetachShader(id_, frag);
     return link_status;
   }
 
@@ -208,6 +212,11 @@ class GLShader final {
       default: ASSERT_MSG(0, "Invalid shader type {}", shader_type); return "<invalid>";
     }
   }
+};
+
+/// Holds the shaders used by the game
+struct Shaders {
+  GLShader color_shader;
 };
 
 auto load_color_shader() -> GLShader
@@ -249,10 +258,7 @@ void main()
   return std::move(*color_shader);
 }
 
-struct Shaders {
-  GLShader color_shader;
-};
-
+/// Loads all shaders used by the game
 Shaders load_shaders()
 {
   return {
@@ -260,14 +266,28 @@ Shaders load_shaders()
   };
 }
 
+/// Represents an object loaded to GPU memory that's renderable using indices
 struct GLObject {
-  GLuint vbo;
-  GLuint ebo;
-  GLuint vao;
+  UniqueNum<GLuint> vbo;
+  UniqueNum<GLuint> ebo;
+  UniqueNum<GLuint> vao;
   size_t num_indices;
+
+  ~GLObject() {
+    if (vbo) glDeleteBuffers(1, &vbo.inner);
+    if (ebo) glDeleteBuffers(1, &ebo.inner);
+    if (vao) glDeleteVertexArrays(1, &vao.inner);
+  }
+
+  // Movable but not Copyable
+  GLObject(GLObject&&) = default;
+  GLObject(const GLObject&) = delete;
+  GLObject& operator=(GLObject&&) = default;
+  GLObject& operator=(const GLObject&) =delete;
 };
 
-struct Vertex {
+/// Vertex representation for the Color Shader
+struct ColorVertex {
   glm::vec3 pos;
   glm::vec4 color;
 };
@@ -285,18 +305,19 @@ struct Vertex {
 // (-1,-1)       (+1,-1)
 // positive Z goes through screen towards you
 
-static constexpr Vertex kQuadVertices[] = {
+static constexpr ColorVertex kColorQuadVertices[] = {
     { .pos = { -1.0f, -1.0f, +0.0f }, .color = { 1.0f, 0.0f, 0.0f, 1.0f } },
     { .pos = { -1.0f, +1.0f, +0.0f }, .color = { 1.0f, 0.0f, 1.0f, 1.0f } },
     { .pos = { +1.0f, -1.0f, +0.0f }, .color = { 0.0f, 1.0f, 0.0f, 1.0f } },
     { .pos = { +1.0f, +1.0f, +0.0f }, .color = { 0.0f, 0.0f, 1.0f, 1.0f } },
 };
 
-static constexpr GLushort kQuadIndices[] = {
+static constexpr GLushort kColorQuadIndices[] = {
     0, 1, 2,
     2, 1, 3,
 };
 
+/// Upload new colored Quad object to GPU memory
 GLObject create_colored_quad(const GLShader& shader)
 {
   GLuint vbo, ebo, vao;
@@ -305,23 +326,43 @@ GLObject create_colored_quad(const GLShader& shader)
   glGenVertexArrays(1, &vao);
   glBindVertexArray(vao);
   glBindBuffer(GL_ARRAY_BUFFER, vbo);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadVertices), kQuadVertices, GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(kColorQuadVertices), kColorQuadVertices, GL_STATIC_DRAW);
   glEnableVertexAttribArray(shader.attr_loc(GLAttr::POSITION));
-  glVertexAttribPointer(shader.attr_loc(GLAttr::POSITION), 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*) offsetof(Vertex, pos));
+  glVertexAttribPointer(shader.attr_loc(GLAttr::POSITION), 3, GL_FLOAT, GL_FALSE, sizeof(ColorVertex), (void*) offsetof(ColorVertex, pos));
   glEnableVertexAttribArray(shader.attr_loc(GLAttr::COLOR));
-  glVertexAttribPointer(shader.attr_loc(GLAttr::COLOR), 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*) offsetof(Vertex, color));
+  glVertexAttribPointer(shader.attr_loc(GLAttr::COLOR), 4, GL_FLOAT, GL_FALSE, sizeof(ColorVertex), (void*) offsetof(ColorVertex, color));
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kQuadIndices), kQuadIndices, GL_STATIC_DRAW);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kColorQuadIndices), kColorQuadIndices, GL_STATIC_DRAW);
   glBindVertexArray(0);
   return { vbo, ebo, vao, 6 };
 }
 
+/// Transform component
 struct Transform {
   glm::vec3 position;
   glm::vec3 scale;
   glm::quat rotation;
 };
 
+/// Prepare to render
+void begin_render()
+{
+  glEnable(GL_DEPTH_TEST);
+  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+  glClearColor(0.2f, 0.1f, 0.1f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
+/// Upload camera matrix to shader
+void set_camera(const GLShader& shader)
+{
+  auto view = glm::mat4(1.0f);
+  auto projection = glm::mat4(1.0f);
+  glUniformMatrix4fv(shader.unif_loc(GLUnif::VIEW), 1, GL_FALSE, glm::value_ptr(view));
+  glUniformMatrix4fv(shader.unif_loc(GLUnif::PROJECTION), 1, GL_FALSE, glm::value_ptr(projection));
+}
+
+/// Render a GLObject with indices
 void render_object(const GLShader& shader, const GLObject& obj)
 {
   auto transform = Transform{
@@ -343,10 +384,12 @@ void render_object(const GLShader& shader, const GLObject& obj)
   glDrawElements(GL_TRIANGLES, obj.num_indices, GL_UNSIGNED_SHORT, nullptr);
 }
 
+/// Generic Scene structure
 struct Scene {
-  GLObject quad;
+  std::optional<GLObject> quad;
 };
 
+/// Game Engine
 struct Engine {
   std::optional<Shaders> shaders;
   std::optional<Scene> scene;
@@ -358,39 +401,28 @@ int game_init(Engine& engine)
   engine.scene = Scene{};
   engine.scene->quad = create_colored_quad(engine.shaders->color_shader);
   DEBUG("Generated colored Quad");
-
   return 0;
 }
 
-int game_update(Engine& engine)
+void game_update(Engine& engine)
 {
-  return 0;
 }
 
-int game_render(Engine& engine)
+void game_render(Engine& engine)
 {
-  glEnable(GL_DEPTH_TEST);
-  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-  glClearColor(0.2f, 0.1f, 0.1f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+  begin_render();
   GLShader& color_shader = engine.shaders->color_shader;
   color_shader.bind();
-
-  auto view = glm::mat4(1.0f);
-  auto projection = glm::mat4(1.0f);
-  glUniformMatrix4fv(color_shader.unif_loc(GLUnif::VIEW), 1, GL_FALSE, glm::value_ptr(view));
-  glUniformMatrix4fv(color_shader.unif_loc(GLUnif::PROJECTION), 1, GL_FALSE, glm::value_ptr(projection));
-
-  render_object(color_shader, engine.scene->quad);
-
-  return 0;
+  set_camera(color_shader);
+  render_object(color_shader, *engine.scene->quad);
 }
 
 int game_loop(GLFWwindow* window)
 {
+  int ret = 0;
   Engine engine;
-  game_init(engine);
+  ret = game_init(engine);
+  if (ret) return ret;
   while (!glfwWindowShouldClose(window)) {
     game_update(engine);
     game_render(engine);
