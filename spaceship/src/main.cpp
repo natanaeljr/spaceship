@@ -19,6 +19,7 @@ using namespace gl;
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <stb/stb_image.h>
 
 #define TRACE SPDLOG_TRACE
 #define DEBUG SPDLOG_DEBUG
@@ -39,6 +40,8 @@ using namespace gl;
     }                          \
   } while (0)
 #define ASSERT(cond) ASSERT_MSG(cond, "Assertion failed: ({})", #cond)
+
+using namespace std::string_literals;
 
 /// Utility type to make unique numbers (IDs) movable, when moved the value should be zero
 template<typename T>
@@ -214,11 +217,6 @@ class GLShader final {
   }
 };
 
-/// Holds the shaders used by the game
-struct Shaders {
-  GLShader color_shader;
-};
-
 auto load_color_shader() -> GLShader
 {
   static constexpr std::string_view kColorShaderVert = R"(
@@ -258,11 +256,60 @@ void main()
   return std::move(*color_shader);
 }
 
+
+auto load_texture_shader() -> GLShader
+{
+  static constexpr std::string_view kTextureShaderVert = R"(
+#version 330 core
+in vec3 aPosition;
+in vec2 aTexCoord;
+out vec2 fTexCoord;
+uniform mat4 uModel;
+uniform mat4 uView;
+uniform mat4 uProjection;
+void main()
+{
+  gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
+  fTexCoord = aTexCoord;
+}
+)";
+
+  static constexpr std::string_view kTextureShaderFrag = R"(
+#version 330 core
+in vec2 fTexCoord;
+out vec4 outColor;
+uniform sampler2D uTexture0;
+void main()
+{
+  outColor = texture(uTexture0, fTexCoord);
+}
+)";
+
+  auto texture_shader = GLShader::build("TextureShader", kTextureShaderVert, kTextureShaderFrag);
+  ASSERT(texture_shader);
+  texture_shader->bind();
+  texture_shader->load_attr_loc(GLAttr::POSITION, "aPosition");
+  texture_shader->load_attr_loc(GLAttr::TEXCOORD, "aTexCoord");
+  texture_shader->load_unif_loc(GLUnif::TEXTURE0, "uTexture0");
+  texture_shader->load_unif_loc(GLUnif::MODEL, "uModel");
+  texture_shader->load_unif_loc(GLUnif::VIEW, "uView");
+  texture_shader->load_unif_loc(GLUnif::PROJECTION, "uProjection");
+
+  return std::move(*texture_shader);
+}
+
+/// Holds the shaders used by the game
+struct Shaders {
+  GLShader color_shader;
+  GLShader texture_shader;
+};
+
 /// Loads all shaders used by the game
 Shaders load_shaders()
 {
   return {
     .color_shader = load_color_shader(),
+    .texture_shader = load_texture_shader(),
   };
 }
 
@@ -279,11 +326,10 @@ struct GLObject {
     if (vao) glDeleteVertexArrays(1, &vao.inner);
   }
 
-  // Movable but not Copyable
   GLObject(GLObject&&) = default;
   GLObject(const GLObject&) = delete;
   GLObject& operator=(GLObject&&) = default;
-  GLObject& operator=(const GLObject&) =delete;
+  GLObject& operator=(const GLObject&) = delete;
 };
 
 /// Vertex representation for the Color Shader
@@ -292,29 +338,42 @@ struct ColorVertex {
   glm::vec4 color;
 };
 
+/// Vertex representation for the Texture Shader
+struct TextureVertex {
+  glm::vec3 pos;
+  glm::vec2 texcoord;
+};
+
 // (-1,+1)       (+1,+1)
 //  Y ^ - - - - - - o
-//    |  B       D  |
+//    |  D       A  |
 //    |   +-----+   |
 //    |   | \   |   |
 //    |   |  0  |   |
 //    |   |   \ |   |
 //    |   +-----+   |
-//    |  A       C  |
+//    |  C       B  |
 //    o - - - - - - > X
 // (-1,-1)       (+1,-1)
 // positive Z goes through screen towards you
 
 static constexpr ColorVertex kColorQuadVertices[] = {
+    { .pos = { +1.0f, +1.0f, +0.0f }, .color = { 0.0f, 0.0f, 1.0f, 1.0f } },
+    { .pos = { +1.0f, -1.0f, +0.0f }, .color = { 0.0f, 1.0f, 0.0f, 1.0f } },
     { .pos = { -1.0f, -1.0f, +0.0f }, .color = { 1.0f, 0.0f, 0.0f, 1.0f } },
     { .pos = { -1.0f, +1.0f, +0.0f }, .color = { 1.0f, 0.0f, 1.0f, 1.0f } },
-    { .pos = { +1.0f, -1.0f, +0.0f }, .color = { 0.0f, 1.0f, 0.0f, 1.0f } },
-    { .pos = { +1.0f, +1.0f, +0.0f }, .color = { 0.0f, 0.0f, 1.0f, 1.0f } },
 };
 
-static constexpr GLushort kColorQuadIndices[] = {
-    0, 1, 2,
-    2, 1, 3,
+static constexpr TextureVertex kTextureQuadVertices[] = {
+    { .pos = { +1.0f, +1.0f, +0.0f }, .texcoord = { 1.0f, 1.0f } },
+    { .pos = { +1.0f, -1.0f, +0.0f }, .texcoord = { 1.0f, 0.0f } },
+    { .pos = { -1.0f, -1.0f, +0.0f }, .texcoord = { 0.0f, 0.0f } },
+    { .pos = { -1.0f, +1.0f, +0.0f }, .texcoord = { 0.0f, 1.0f } },
+};
+
+static constexpr GLushort kQuadIndices[] = {
+    0, 1, 3,
+    1, 2, 3,
 };
 
 /// Upload new colored Quad object to GPU memory
@@ -332,9 +391,69 @@ GLObject create_colored_quad(const GLShader& shader)
   glEnableVertexAttribArray(shader.attr_loc(GLAttr::COLOR));
   glVertexAttribPointer(shader.attr_loc(GLAttr::COLOR), 4, GL_FLOAT, GL_FALSE, sizeof(ColorVertex), (void*) offsetof(ColorVertex, color));
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kColorQuadIndices), kColorQuadIndices, GL_STATIC_DRAW);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kQuadIndices), kQuadIndices, GL_STATIC_DRAW);
   glBindVertexArray(0);
   return { vbo, ebo, vao, 6 };
+}
+
+/// Upload new textured Quad object to GPU memory
+GLObject create_texture_quad(const GLShader& shader)
+{
+  GLuint vbo, ebo, vao;
+  glGenBuffers(1, &vbo);
+  glGenBuffers(1, &ebo);
+  glGenVertexArrays(1, &vao);
+  glBindVertexArray(vao);
+  glBindBuffer(GL_ARRAY_BUFFER, vbo);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(kTextureQuadVertices), kTextureQuadVertices, GL_STATIC_DRAW);
+  glEnableVertexAttribArray(shader.attr_loc(GLAttr::POSITION));
+  glVertexAttribPointer(shader.attr_loc(GLAttr::POSITION), 3, GL_FLOAT, GL_FALSE, sizeof(TextureVertex), (void*) offsetof(TextureVertex, pos));
+  glEnableVertexAttribArray(shader.attr_loc(GLAttr::TEXCOORD));
+  glVertexAttribPointer(shader.attr_loc(GLAttr::TEXCOORD), 2, GL_FLOAT, GL_FALSE, sizeof(TextureVertex), (void*) offsetof(TextureVertex, texcoord));
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kQuadIndices), kQuadIndices, GL_STATIC_DRAW);
+  glBindVertexArray(0);
+  return { vbo, ebo, vao, 6 };
+}
+
+/// Represents a texture loaded to GPU memory
+struct GLTexture {
+  UniqueNum<GLuint> id;
+
+  ~GLTexture() {
+    if (id) glDeleteTextures(1, &id.inner);
+  }
+
+  GLTexture(GLTexture&&) = default;
+  GLTexture(const GLTexture&) = delete;
+  GLTexture& operator=(GLTexture&&) = default;
+  GLTexture& operator=(const GLTexture&) = delete;
+};
+
+/// Read and upload texture to GPU memory
+auto load_rgba_texture(const std::string& inpath) -> std::optional<GLTexture>
+{
+  const std::string filepath = SPACESHIP_ASSETS_PATH + "/"s + inpath;
+  int width, height, channels;
+  stbi_set_flip_vertically_on_load(true);
+  unsigned char* data = stbi_load(filepath.data(), &width, &height, &channels, 0);
+  if (!data) {
+    ERROR("Failed to load texture path ({})", filepath);
+    return std::nullopt;
+  }
+  ASSERT_MSG(channels == 4 || channels == 3, "actual channels: {}", channels);
+  GLenum type = (channels == 4) ? GL_RGBA : GL_RGB;
+  GLuint texture;
+  glGenTextures(1, &texture);
+  glBindTexture(GL_TEXTURE_2D, texture); 
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, type, GL_UNSIGNED_BYTE, data);
+  glGenerateMipmap(GL_TEXTURE_2D);
+  stbi_image_free(data);
+  return GLTexture{ texture };
 }
 
 /// Transform component
@@ -348,6 +467,8 @@ struct Transform {
 void begin_render()
 {
   glEnable(GL_DEPTH_TEST);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
   glClearColor(0.2f, 0.1f, 0.1f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -366,8 +487,8 @@ void set_camera(const GLShader& shader)
 void render_object(const GLShader& shader, const GLObject& obj)
 {
   auto transform = Transform{
-    .position = glm::vec3(0.0f, 0.0f, 0.0f),
-    .scale = glm::vec3(0.4f),
+    .position = glm::vec3(0.45f, 0.0f, 0.0f),
+    .scale = glm::vec3(0.3f),
     .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
   };
 
@@ -384,9 +505,35 @@ void render_object(const GLShader& shader, const GLObject& obj)
   glDrawElements(GL_TRIANGLES, obj.num_indices, GL_UNSIGNED_SHORT, nullptr);
 }
 
+/// Render a textured GLObject with indices
+void render_textured_object(const GLShader& shader, const GLTexture& texture, const GLObject& obj)
+{
+  auto transform = Transform{
+    .position = glm::vec3(-0.45f, 0.0f, 0.0f),
+    .scale = glm::vec3(0.3f),
+    .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
+  };
+
+  float dt = glfwGetTime();
+  transform.position.y = std::sin(dt) * 0.4f;
+
+  glm::mat4 translation = glm::translate(glm::mat4(1.0f), transform.position);
+  glm::mat4 rotation = glm::toMat4(transform.rotation);
+  glm::mat4 scale = glm::scale(glm::mat4(1.0f), transform.scale);
+  glm::mat4 model = translation * rotation * scale;
+
+  glUniformMatrix4fv(shader.unif_loc(GLUnif::MODEL), 1, GL_FALSE, glm::value_ptr(model));
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, texture.id);
+  glBindVertexArray(obj.vao);
+  glDrawElements(GL_TRIANGLES, obj.num_indices, GL_UNSIGNED_SHORT, nullptr);
+}
+
 /// Generic Scene structure
 struct Scene {
-  std::optional<GLObject> quad;
+  std::optional<GLObject> colored_quad;
+  std::optional<GLObject> spaceship_quad;
+  std::optional<GLTexture> spaceship_tex;
 };
 
 /// Game Engine
@@ -399,8 +546,13 @@ int game_init(Engine& engine)
 {
   engine.shaders = load_shaders();
   engine.scene = Scene{};
-  engine.scene->quad = create_colored_quad(engine.shaders->color_shader);
+  engine.scene->colored_quad = create_colored_quad(engine.shaders->color_shader);
   DEBUG("Generated colored Quad");
+  engine.scene->spaceship_tex = load_rgba_texture("spaceship.png");
+  ASSERT(engine.scene->spaceship_tex);
+  DEBUG("Generated Spaceship Texture");
+  engine.scene->spaceship_quad = create_texture_quad(engine.shaders->texture_shader);
+  DEBUG("Generated Spaceship Quad");
   return 0;
 }
 
@@ -411,10 +563,16 @@ void game_update(Engine& engine)
 void game_render(Engine& engine)
 {
   begin_render();
+
   GLShader& color_shader = engine.shaders->color_shader;
   color_shader.bind();
   set_camera(color_shader);
-  render_object(color_shader, *engine.scene->quad);
+  render_object(color_shader, *engine.scene->colored_quad);
+
+  GLShader& texture_shader = engine.shaders->texture_shader;
+  texture_shader.bind();
+  set_camera(texture_shader);
+  render_textured_object(texture_shader, *engine.scene->spaceship_tex, *engine.scene->spaceship_quad);
 }
 
 int game_loop(GLFWwindow* window)

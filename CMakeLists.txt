@@ -44,4 +44,5 @@ ExternalProject_Add(spaceship
         spdlog_external
         glfw_external
         glbinding_external
-        glm_external)
+        glm_external
+        stb_external)

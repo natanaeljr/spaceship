@@ -45,6 +45,8 @@ find_package(glfw3 3.3.6 EXACT REQUIRED)
 find_package(glbinding REQUIRED)
 # GLM for opengl mathematics library
 find_package(glm 0.9.9.9 EXACT REQUIRED)
+# STB for image loading/decoding
+find_package(stb 0.8.1 EXACT REQUIRED COMPONENTS stb_image)
 
 #########################################################################################
 # Project
@@ -59,6 +61,7 @@ target_sources(spaceship PRIVATE
 target_link_libraries(spaceship PRIVATE
     glm::glm
     spdlog::spdlog
+    stb::stb_image
     glfw
     glbinding::glbinding
     glbinding::glbinding-aux
@@ -67,6 +70,7 @@ target_link_libraries(spaceship PRIVATE
 target_compile_definitions(spaceship PRIVATE
     GLFW_INCLUDE_NONE
     SPDLOG_ACTIVE_LEVEL=$<IF:$<STREQUAL:${CMAKE_BUILD_TYPE},Debug>,SPDLOG_LEVEL_TRACE,SPDLOG_LEVEL_INFO>
+    SPACESHIP_ASSETS_PATH=$<IF:$<STREQUAL:${CMAKE_BUILD_TYPE},Debug>,"${CMAKE_CURRENT_SOURCE_DIR}/assets","TODO">
 )
 
 install(TARGETS spaceship)
