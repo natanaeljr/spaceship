@@ -568,21 +568,21 @@ void set_camera(const GLShader& shader)
 }
 
 /// Render a GLObject with indices
-void draw_object(const GLShader& shader, const GLObject& obj, const glm::mat4& model)
+void draw_object(const GLShader& shader, const GLObject& glo, const glm::mat4& model)
 {
   glUniformMatrix4fv(shader.unif_loc(GLUnif::MODEL), 1, GL_FALSE, glm::value_ptr(model));
-  glBindVertexArray(obj.vao);
-  glDrawElements(GL_TRIANGLES, obj.num_indices, GL_UNSIGNED_SHORT, nullptr);
+  glBindVertexArray(glo.vao);
+  glDrawElements(GL_TRIANGLES, glo.num_indices, GL_UNSIGNED_SHORT, nullptr);
 }
 
 /// Render a textured GLObject with indices
-void draw_textured_object(const GLShader& shader, const GLTexture& texture, const GLObject& obj,
+void draw_textured_object(const GLShader& shader, const GLTexture& texture, const GLObject& glo,
                           const glm::mat4& model, const void* ebo_offset, size_t ebo_count)
 {
   glUniformMatrix4fv(shader.unif_loc(GLUnif::MODEL), 1, GL_FALSE, glm::value_ptr(model));
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, texture.id);
-  glBindVertexArray(obj.vao);
+  glBindVertexArray(glo.vao);
   glDrawElements(GL_TRIANGLES, ebo_count, GL_UNSIGNED_SHORT, ebo_offset);
 }
 
@@ -590,24 +590,24 @@ void draw_textured_object(const GLShader& shader, const GLTexture& texture, cons
 struct Scene {
   struct {
     Transform transform;
-    std::optional<GLObject> obj;
+    std::optional<GLObject> glo;
     std::optional<GLTexture> texture;
   } background;
 
   struct {
     Transform transform;
-    std::optional<GLObject> obj;
+    std::optional<GLObject> glo;
   } colored_quad;
 
   struct {
     Transform transform;
-    std::optional<GLObject> obj;
+    std::optional<GLObject> glo;
     std::optional<GLTexture> texture;
   } spaceship;
 
   struct {
     Transform transform;
-    std::optional<GLObject> obj;
+    std::optional<GLObject> glo;
     std::optional<GLTexture> texture;
     std::optional<SpriteAnimation> animation;
   } ligher;
@@ -651,23 +651,23 @@ int game_init(Game& game)
   game.scene->background.texture = load_rgba_texture("background01.png");
   ASSERT(game.scene->background.texture);
   DEBUG("Loading Background Quad");
-  game.scene->background.obj = create_textured_quad(game.shaders->texture_shader);
+  game.scene->background.glo = create_textured_quad(game.shaders->texture_shader);
 
   DEBUG("Loading Colored Quad");
-  game.scene->colored_quad.obj = create_colored_quad(game.shaders->color_shader);
+  game.scene->colored_quad.glo = create_colored_quad(game.shaders->color_shader);
 
   DEBUG("Loading Spaceship Texture");
   game.scene->spaceship.texture = load_rgba_texture("spaceship.png");
   ASSERT(game.scene->spaceship.texture);
   DEBUG("Loading Spaceship Quad");
-  game.scene->spaceship.obj = create_textured_quad(game.shaders->texture_shader);
+  game.scene->spaceship.glo = create_textured_quad(game.shaders->texture_shader);
 
   DEBUG("Loading Ligher Texture");
   game.scene->ligher.texture = load_rgba_texture("ligher.png");
   ASSERT(game.scene->ligher.texture);
   DEBUG("Loading Ligher Vertices");
   auto [ligher_vertices, ligher_indices] = generate_linear_sprite_quads(4);
-  game.scene->ligher.obj = create_textured_globject(game.shaders->texture_shader, ligher_vertices, ligher_indices);
+  game.scene->ligher.glo = create_textured_globject(game.shaders->texture_shader, ligher_vertices, ligher_indices);
   DEBUG("Loading Ligher Sprite Animation");
   game.scene->ligher.animation = SpriteAnimation{
     .frames = {
@@ -700,23 +700,23 @@ void game_render(Game& game)
   set_camera(texture_shader);
 
   auto& background = game.scene->background;
-  draw_textured_object(texture_shader, *background.texture, *background.obj, background.transform.model_mat(),
-      nullptr, background.obj->num_indices);
+  draw_textured_object(texture_shader, *background.texture, *background.glo, background.transform.model_mat(),
+      nullptr, background.glo->num_indices);
 
   auto& spaceship = game.scene->spaceship;
-  draw_textured_object(texture_shader, *spaceship.texture, *spaceship.obj, spaceship.transform.model_mat(),
-      nullptr, spaceship.obj->num_indices);
+  draw_textured_object(texture_shader, *spaceship.texture, *spaceship.glo, spaceship.transform.model_mat(),
+      nullptr, spaceship.glo->num_indices);
 
   auto& ligher = game.scene->ligher;
   SpriteFrame& ligher_frame = ligher.animation->frames[ligher.animation->curr_frame_idx];
-  draw_textured_object(texture_shader, *ligher.texture, *ligher.obj, ligher.transform.model_mat(),
+  draw_textured_object(texture_shader, *ligher.texture, *ligher.glo, ligher.transform.model_mat(),
       (const void*)ligher_frame.ebo_offset, ligher_frame.ebo_count);
 
   GLShader& color_shader = game.shaders->color_shader;
   color_shader.bind();
   set_camera(color_shader);
   auto& colored_quad = game.scene->colored_quad;
-  draw_object(color_shader, *colored_quad.obj, colored_quad.transform.model_mat());
+  draw_object(color_shader, *colored_quad.glo, colored_quad.transform.model_mat());
 
 }
 
