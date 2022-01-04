@@ -47,6 +47,8 @@ find_package(glbinding REQUIRED)
 find_package(glm 0.9.9.9 EXACT REQUIRED)
 # STB for image loading/decoding
 find_package(stb 0.8.1 EXACT REQUIRED COMPONENTS stb_image)
+# GSL for types and functions of C++ Core Guidelines
+find_package(Microsoft.GSL 3.1.0 EXACT REQUIRED)
 
 #########################################################################################
 # Project
@@ -62,6 +64,7 @@ target_link_libraries(spaceship PRIVATE
     glm::glm
     spdlog::spdlog
     stb::stb_image
+    Microsoft.GSL::GSL
     glfw
     glbinding::glbinding
     glbinding::glbinding-aux

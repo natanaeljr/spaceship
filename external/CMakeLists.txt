@@ -98,3 +98,23 @@ ExternalProject_Add(stb_external
         -DCMAKE_GENERATOR=${CMAKE_GENERATOR}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DSTB_IMAGE=ON)
+
+#########################################################################################
+# GSL
+#########################################################################################
+# The Guidelines Support Library (GSL) contains functions and types that are suggested
+# for use by the C++ Core Guidelines maintained by the Standard C++ Foundation.
+# This repo contains Microsoft's implementation of GSL.
+# Microsoft GSL is licensed under the MIT License.
+message(STATUS "Adding external library: GSL")
+ExternalProject_Add(gsl_external
+    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/gsl
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/gsl
+    INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+        -DCMAKE_GENERATOR=${CMAKE_GENERATOR}
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+        -DBUILD_SHARED_LIBS=OFF
+        -DGSL_TEST=OFF)

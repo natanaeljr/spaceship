@@ -39,4 +39,8 @@ cmake --build .
    * Texture Shader
    * Load texture with stb image
    * Render procedure
-- [ ] Sprite Animation
+- [X] Sprite Animation
+- [ ] Handle Keyboard input
+- [ ] Window Resizing
+- [ ] Render Text
+- [ ] Android Platform
