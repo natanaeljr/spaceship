@@ -503,7 +503,7 @@ auto generate_linear_sprite_quads(size_t count) -> std::tuple<std::vector<Textur
 
 /// Information required to render one frame of a Sprite Animation
 struct SpriteFrame {
-  float duration;    // duration in seconds
+  float duration;    // duration in seconds, negative is infinite
   size_t ebo_offset; // offset to the first index of this frame in the EBO
   size_t ebo_count;  // number of elements to render since first index
 };
@@ -530,6 +530,14 @@ struct Transform {
   glm::vec3 position;
   glm::vec3 scale;
   glm::quat rotation;
+
+  static Transform identity() {
+    return {
+      .position = glm::vec3(0.0f),
+      .scale = glm::vec3(1.0f),
+      .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
+    };
+  }
 
   glm::mat4 model_mat() {
     glm::mat4 translation_mat = glm::translate(glm::mat4(1.0f), position);
@@ -583,6 +591,12 @@ struct Scene {
   struct {
     Transform transform;
     std::optional<GLObject> obj;
+    std::optional<GLTexture> texture;
+  } background;
+
+  struct {
+    Transform transform;
+    std::optional<GLObject> obj;
   } colored_quad;
 
   struct {
@@ -612,8 +626,11 @@ int game_init(Game& game)
   game.shaders = load_shaders();
   game.scene = Scene{};
 
+  game.scene->background.transform = Transform::identity();
+  game.scene->background.transform.position.z = 0.99f;
+
   game.scene->colored_quad.transform = Transform{
-    .position = glm::vec3(0.45f, 0.0f, 0.0f),
+    .position = glm::vec3(0.45f, 0.0f, -0.1f),
     .scale = glm::vec3(0.3f),
     .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
   };
@@ -630,6 +647,12 @@ int game_init(Game& game)
     .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
   };
 
+  DEBUG("Loading Background Texture");
+  game.scene->background.texture = load_rgba_texture("background01.png");
+  ASSERT(game.scene->background.texture);
+  DEBUG("Loading Background Quad");
+  game.scene->background.obj = create_textured_quad(game.shaders->texture_shader);
+
   DEBUG("Loading Colored Quad");
   game.scene->colored_quad.obj = create_colored_quad(game.shaders->color_shader);
 
@@ -640,7 +663,7 @@ int game_init(Game& game)
   game.scene->spaceship.obj = create_textured_quad(game.shaders->texture_shader);
 
   DEBUG("Loading Ligher Texture");
-  game.scene->ligher.texture = load_rgba_texture("Ligher.png");
+  game.scene->ligher.texture = load_rgba_texture("ligher.png");
   ASSERT(game.scene->ligher.texture);
   DEBUG("Loading Ligher Vertices");
   auto [ligher_vertices, ligher_indices] = generate_linear_sprite_quads(4);
@@ -672,15 +695,13 @@ void game_render(Game& game)
 {
   begin_render();
 
-  GLShader& color_shader = game.shaders->color_shader;
-  color_shader.bind();
-  set_camera(color_shader);
-  auto& colored_quad = game.scene->colored_quad;
-  draw_object(color_shader, *colored_quad.obj, colored_quad.transform.model_mat());
-
   GLShader& texture_shader = game.shaders->texture_shader;
   texture_shader.bind();
   set_camera(texture_shader);
+
+  auto& background = game.scene->background;
+  draw_textured_object(texture_shader, *background.texture, *background.obj, background.transform.model_mat(),
+      nullptr, background.obj->num_indices);
 
   auto& spaceship = game.scene->spaceship;
   draw_textured_object(texture_shader, *spaceship.texture, *spaceship.obj, spaceship.transform.model_mat(),
@@ -690,6 +711,13 @@ void game_render(Game& game)
   SpriteFrame& ligher_frame = ligher.animation->frames[ligher.animation->curr_frame_idx];
   draw_textured_object(texture_shader, *ligher.texture, *ligher.obj, ligher.transform.model_mat(),
       (const void*)ligher_frame.ebo_offset, ligher_frame.ebo_count);
+
+  GLShader& color_shader = game.shaders->color_shader;
+  color_shader.bind();
+  set_camera(color_shader);
+  auto& colored_quad = game.scene->colored_quad;
+  draw_object(color_shader, *colored_quad.obj, colored_quad.transform.model_mat());
+
 }
 
 int game_loop(GLFWwindow* window)
@@ -714,7 +742,7 @@ int create_window(GLFWwindow*& window)
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-  window = glfwCreateWindow(480, 720, "Spaceship", nullptr, nullptr);
+  window = glfwCreateWindow(500, 700, "Spaceship", nullptr, nullptr);
   if (window == nullptr) {
     std::cerr << "Failed to create GLFW window" << std::endl;
     glfwTerminate();
