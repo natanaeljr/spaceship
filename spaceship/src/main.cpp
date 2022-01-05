@@ -314,6 +314,18 @@ Shaders load_shaders()
   };
 }
 
+/// Vertex representation for the Color Shader
+struct ColorVertex {
+  glm::vec3 pos;
+  glm::vec4 color;
+};
+
+/// Vertex representation for the Texture Shader
+struct TextureVertex {
+  glm::vec3 pos;
+  glm::vec2 texcoord;
+};
+
 /// Represents an object loaded to GPU memory that's renderable using indices
 struct GLObject {
   UniqueNum<GLuint> vbo;
@@ -332,51 +344,6 @@ struct GLObject {
   GLObject(const GLObject&) = delete;
   GLObject& operator=(GLObject&&) = default;
   GLObject& operator=(const GLObject&) = delete;
-};
-
-/// Vertex representation for the Color Shader
-struct ColorVertex {
-  glm::vec3 pos;
-  glm::vec4 color;
-};
-
-/// Vertex representation for the Texture Shader
-struct TextureVertex {
-  glm::vec3 pos;
-  glm::vec2 texcoord;
-};
-
-// Quad Vertices:
-// (-1,+1)       (+1,+1)
-//  Y ^ - - - - - - o
-//    |  D       A  |
-//    |   +-----+   |
-//    |   | \   |   |
-//    |   |  0  |   |
-//    |   |   \ |   |
-//    |   +-----+   |
-//    |  C       B  |
-//    o - - - - - - > X
-// (-1,-1)       (+1,-1)
-// positive Z goes through screen towards you
-
-static constexpr ColorVertex kColorQuadVertices[] = {
-  { .pos = { +1.0f, +1.0f, +0.0f }, .color = { 0.0f, 0.0f, 1.0f, 1.0f } },
-  { .pos = { +1.0f, -1.0f, +0.0f }, .color = { 0.0f, 1.0f, 0.0f, 1.0f } },
-  { .pos = { -1.0f, -1.0f, +0.0f }, .color = { 1.0f, 0.0f, 0.0f, 1.0f } },
-  { .pos = { -1.0f, +1.0f, +0.0f }, .color = { 1.0f, 0.0f, 1.0f, 1.0f } },
-};
-
-static constexpr TextureVertex kTextureQuadVertices[] = {
-  { .pos = { +1.0f, +1.0f, +0.0f }, .texcoord = { 1.0f, 1.0f } },
-  { .pos = { +1.0f, -1.0f, +0.0f }, .texcoord = { 1.0f, 0.0f } },
-  { .pos = { -1.0f, -1.0f, +0.0f }, .texcoord = { 0.0f, 0.0f } },
-  { .pos = { -1.0f, +1.0f, +0.0f }, .texcoord = { 0.0f, 1.0f } },
-};
-
-static constexpr GLushort kQuadIndices[] = {
-  0, 1, 3,
-  1, 2, 3,
 };
 
 /// Upload new colored Indexed-Vertex object to GPU memory
@@ -419,17 +386,103 @@ GLObject create_textured_globject(const GLShader& shader, gsl::span<const Textur
   return { vbo, ebo, vao, indices.size() };
 }
 
+// Quad Vertices:
+// (-1,+1)       (+1,+1)
+//  Y ^ - - - - - - o
+//    |  D       A  |
+//    |   +-----+   |
+//    |   | \   |   |
+//    |   |  0  |   |
+//    |   |   \ |   |
+//    |   +-----+   |
+//    |  C       B  |
+//    o - - - - - - > X
+// (-1,-1)       (+1,-1)
+// positive Z goes through screen towards you
+
+static constexpr ColorVertex kColorQuadVertices[] = {
+  { .pos = { +1.0f, +1.0f, +0.0f }, .color = { 0.0f, 0.0f, 1.0f, 1.0f } },
+  { .pos = { +1.0f, -1.0f, +0.0f }, .color = { 0.0f, 1.0f, 0.0f, 1.0f } },
+  { .pos = { -1.0f, -1.0f, +0.0f }, .color = { 1.0f, 0.0f, 0.0f, 1.0f } },
+  { .pos = { -1.0f, +1.0f, +0.0f }, .color = { 1.0f, 0.0f, 1.0f, 1.0f } },
+};
+
+static constexpr TextureVertex kTextureQuadVertices[] = {
+  { .pos = { +1.0f, +1.0f, +0.0f }, .texcoord = { 1.0f, 1.0f } },
+  { .pos = { +1.0f, -1.0f, +0.0f }, .texcoord = { 1.0f, 0.0f } },
+  { .pos = { -1.0f, -1.0f, +0.0f }, .texcoord = { 0.0f, 0.0f } },
+  { .pos = { -1.0f, +1.0f, +0.0f }, .texcoord = { 0.0f, 1.0f } },
+};
+
+static constexpr GLushort kQuadIndices[] = {
+  0, 1, 3,
+  1, 2, 3,
+};
+
 /// Upload new colored Quad object to GPU memory
-GLObject create_colored_quad(const GLShader& shader)
+GLObject create_colored_quad_globject(const GLShader& shader)
 {
   return create_colored_globject(shader, kColorQuadVertices, kQuadIndices);
 }
 
 /// Upload new textured Quad object to GPU memory
-GLObject create_textured_quad(const GLShader& shader)
+GLObject create_textured_quad_globject(const GLShader& shader)
 {
   return create_textured_globject(shader, kTextureQuadVertices, kQuadIndices);
 }
+
+// Generate quad vertices for a spritesheet texture with frames laid out linearly.
+// count=3:        .texcoord (U,V)
+// (0,1) +-----+-----+-----+ (1,1)
+//       |     |     |     |
+//       |  1  |  2  |  3  |
+//       |     |     |     |
+// (0,0) +-----+-----+-----+ (1,0)
+auto gen_sprite_quads(size_t count) -> std::tuple<std::vector<TextureVertex>, std::vector<GLushort>>
+{
+  float width = 1.0f / count;
+  std::vector<TextureVertex> vertices;
+  std::vector<GLushort> indices;
+  vertices.reserve(4 * count);
+  indices.reserve(6 * count);
+  for (size_t i = 0; i < count; i++) {
+    vertices.emplace_back(TextureVertex{ .pos = { +1.0f, +1.0f, +0.0f }, .texcoord = { (i+1)*width, 1.0f } });
+    vertices.emplace_back(TextureVertex{ .pos = { +1.0f, -1.0f, +0.0f }, .texcoord = { (i+1)*width, 0.0f } });
+    vertices.emplace_back(TextureVertex{ .pos = { -1.0f, -1.0f, +0.0f }, .texcoord = { (i+0)*width, 0.0f } });
+    vertices.emplace_back(TextureVertex{ .pos = { -1.0f, +1.0f, +0.0f }, .texcoord = { (i+0)*width, 1.0f } });
+    indices.emplace_back(4*i+0);
+    indices.emplace_back(4*i+1);
+    indices.emplace_back(4*i+3);
+    indices.emplace_back(4*i+1);
+    indices.emplace_back(4*i+2);
+    indices.emplace_back(4*i+3);
+  }
+  return {vertices, indices};
+}
+
+/// Information required to render one frame of a Sprite Animation
+struct SpriteFrame {
+  float duration;    // duration in seconds, negative is infinite
+  size_t ebo_offset; // offset to the first index of this frame in the EBO
+  size_t ebo_count;  // number of elements to render since first index
+};
+
+/// Control data required for a single Sprite Animation object
+struct SpriteAnimation {
+  float last_transit_time; // last transition timestamp 
+  size_t curr_frame_idx;   // current frame index
+  std::vector<SpriteFrame> frames;
+
+  /// Transition frames
+  void update_frame(float dt) {
+    SpriteFrame& curr_frame = frames[curr_frame_idx];
+    float frame_dt = last_transit_time + curr_frame.duration;
+    if (dt >= frame_dt) {
+      last_transit_time = dt;
+      if (++curr_frame_idx == frames.size()) curr_frame_idx = 0;
+    }
+  }
+};
 
 /// Represents a texture loaded to GPU memory
 struct GLTexture {
@@ -471,59 +524,6 @@ auto load_rgba_texture(const std::string& inpath) -> std::optional<GLTexture>
   stbi_image_free(data);
   return GLTexture{ texture };
 }
-
-// Generate quad vertices for a spritesheet texture with frames laid out linearly.
-// count=3:        .texcoord (U,V)
-// (0,1) +-----+-----+-----+ (1,1)
-//       |     |     |     |
-//       |  1  |  2  |  3  |
-//       |     |     |     |
-// (0,0) +-----+-----+-----+ (1,0)
-auto generate_linear_sprite_quads(size_t count) -> std::tuple<std::vector<TextureVertex>, std::vector<GLushort>>
-{
-  float width = 1.0f / count;
-  std::vector<TextureVertex> vertices;
-  std::vector<GLushort> indices;
-  vertices.reserve(4 * count);
-  indices.reserve(6 * count);
-  for (size_t i = 0; i < count; i++) {
-    vertices.emplace_back(TextureVertex{ .pos = { +1.0f, +1.0f, +0.0f }, .texcoord = { (i+1)*width, 1.0f } });
-    vertices.emplace_back(TextureVertex{ .pos = { +1.0f, -1.0f, +0.0f }, .texcoord = { (i+1)*width, 0.0f } });
-    vertices.emplace_back(TextureVertex{ .pos = { -1.0f, -1.0f, +0.0f }, .texcoord = { (i+0)*width, 0.0f } });
-    vertices.emplace_back(TextureVertex{ .pos = { -1.0f, +1.0f, +0.0f }, .texcoord = { (i+0)*width, 1.0f } });
-    indices.emplace_back(4*i+0);
-    indices.emplace_back(4*i+1);
-    indices.emplace_back(4*i+3);
-    indices.emplace_back(4*i+1);
-    indices.emplace_back(4*i+2);
-    indices.emplace_back(4*i+3);
-  }
-  return {vertices, indices};
-}
-
-/// Information required to render one frame of a Sprite Animation
-struct SpriteFrame {
-  float duration;    // duration in seconds, negative is infinite
-  size_t ebo_offset; // offset to the first index of this frame in the EBO
-  size_t ebo_count;  // number of elements to render since first index
-};
-
-/// Control data required for a single Sprite Animation object
-struct SpriteAnimation {
-  std::vector<SpriteFrame> frames;
-  size_t curr_frame_idx;   // current frame index
-  float last_transit_time; // last transition timestamp 
-
-  /// Transition frames
-  void update_frame(float dt) {
-    SpriteFrame& curr_frame = frames[curr_frame_idx];
-    float frame_dt = last_transit_time + curr_frame.duration;
-    if (dt >= frame_dt) {
-      last_transit_time = dt;
-      if (++curr_frame_idx == frames.size()) curr_frame_idx = 0;
-    }
-  }
-};
 
 /// Transform component
 struct Transform {
@@ -577,13 +577,13 @@ void draw_object(const GLShader& shader, const GLObject& glo, const glm::mat4& m
 
 /// Render a textured GLObject with indices
 void draw_textured_object(const GLShader& shader, const GLTexture& texture, const GLObject& glo,
-                          const glm::mat4& model, const void* ebo_offset, size_t ebo_count)
+                          const glm::mat4& model, size_t ebo_offset, size_t ebo_count)
 {
   glUniformMatrix4fv(shader.unif_loc(GLUnif::MODEL), 1, GL_FALSE, glm::value_ptr(model));
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, texture.id);
   glBindVertexArray(glo.vao);
-  glDrawElements(GL_TRIANGLES, ebo_count, GL_UNSIGNED_SHORT, ebo_offset);
+  glDrawElements(GL_TRIANGLES, ebo_count, GL_UNSIGNED_SHORT, (const void*)ebo_offset);
 }
 
 /// Generic Scene structure
@@ -651,33 +651,33 @@ int game_init(Game& game)
   game.scene->background.texture = load_rgba_texture("background01.png");
   ASSERT(game.scene->background.texture);
   DEBUG("Loading Background Quad");
-  game.scene->background.glo = create_textured_quad(game.shaders->texture_shader);
+  game.scene->background.glo = create_textured_quad_globject(game.shaders->texture_shader);
 
   DEBUG("Loading Colored Quad");
-  game.scene->colored_quad.glo = create_colored_quad(game.shaders->color_shader);
+  game.scene->colored_quad.glo = create_colored_quad_globject(game.shaders->color_shader);
 
   DEBUG("Loading Spaceship Texture");
   game.scene->spaceship.texture = load_rgba_texture("spaceship.png");
   ASSERT(game.scene->spaceship.texture);
   DEBUG("Loading Spaceship Quad");
-  game.scene->spaceship.glo = create_textured_quad(game.shaders->texture_shader);
+  game.scene->spaceship.glo = create_textured_quad_globject(game.shaders->texture_shader);
 
   DEBUG("Loading Ligher Texture");
   game.scene->ligher.texture = load_rgba_texture("ligher.png");
   ASSERT(game.scene->ligher.texture);
   DEBUG("Loading Ligher Vertices");
-  auto [ligher_vertices, ligher_indices] = generate_linear_sprite_quads(4);
+  auto [ligher_vertices, ligher_indices] = gen_sprite_quads(4);
   game.scene->ligher.glo = create_textured_globject(game.shaders->texture_shader, ligher_vertices, ligher_indices);
   DEBUG("Loading Ligher Sprite Animation");
   game.scene->ligher.animation = SpriteAnimation{
-    .frames = {
-      SpriteFrame{ .duration = 0.1, .ebo_offset = 0, .ebo_count = 6 },
-      SpriteFrame{ .duration = 0.1, .ebo_offset = 6, .ebo_count = 6 },
-      SpriteFrame{ .duration = 0.1, .ebo_offset = 12, .ebo_count = 6 },
-      SpriteFrame{ .duration = 0.1, .ebo_offset = 18, .ebo_count = 6 },
-    },
-    .curr_frame_idx = 0,
     .last_transit_time = dt,
+    .curr_frame_idx = 0,
+    .frames = std::initializer_list<SpriteFrame>{
+      { .duration = 0.1, .ebo_offset = 0, .ebo_count = 6 },
+      { .duration = 0.1, .ebo_offset = 6, .ebo_count = 6 },
+      { .duration = 0.1, .ebo_offset = 12, .ebo_count = 6 },
+      { .duration = 0.1, .ebo_offset = 18, .ebo_count = 6 },
+    },
   };
 
   return 0;
@@ -688,6 +688,7 @@ void game_update(Game& game)
   float dt = glfwGetTime();
   game.scene->colored_quad.transform.position.y = std::sin(dt) * -0.4f;
   game.scene->spaceship.transform.position.y = std::sin(dt) * 0.4f;
+  game.scene->ligher.transform.position.x = std::sin(dt) * -0.1f;
   game.scene->ligher.animation->update_frame(dt);
 }
 
@@ -700,24 +701,20 @@ void game_render(Game& game)
   set_camera(texture_shader);
 
   auto& background = game.scene->background;
-  draw_textured_object(texture_shader, *background.texture, *background.glo, background.transform.model_mat(),
-      nullptr, background.glo->num_indices);
+  draw_textured_object(texture_shader, *background.texture, *background.glo, background.transform.model_mat(), 0, background.glo->num_indices);
 
   auto& spaceship = game.scene->spaceship;
-  draw_textured_object(texture_shader, *spaceship.texture, *spaceship.glo, spaceship.transform.model_mat(),
-      nullptr, spaceship.glo->num_indices);
+  draw_textured_object(texture_shader, *spaceship.texture, *spaceship.glo, spaceship.transform.model_mat(), 0, spaceship.glo->num_indices);
 
   auto& ligher = game.scene->ligher;
   SpriteFrame& ligher_frame = ligher.animation->frames[ligher.animation->curr_frame_idx];
-  draw_textured_object(texture_shader, *ligher.texture, *ligher.glo, ligher.transform.model_mat(),
-      (const void*)ligher_frame.ebo_offset, ligher_frame.ebo_count);
+  draw_textured_object(texture_shader, *ligher.texture, *ligher.glo, ligher.transform.model_mat(), ligher_frame.ebo_offset, ligher_frame.ebo_count);
 
   GLShader& color_shader = game.shaders->color_shader;
   color_shader.bind();
   set_camera(color_shader);
   auto& colored_quad = game.scene->colored_quad;
   draw_object(color_shader, *colored_quad.glo, colored_quad.transform.model_mat());
-
 }
 
 int game_loop(GLFWwindow* window)
@@ -750,20 +747,11 @@ int create_window(GLFWwindow*& window)
   }
 
   glfwMakeContextCurrent(window);
-  //glfwSetWindowUserPointer(window, &state);
-
-  // callbacks
-  //glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-  //glfwSetKeyCallback(window, key_callback);
-  //glfwSetCursorPosCallback(window, cursor_position_callback);
-  //glfwSetMouseButtonCallback(window, mouse_button_callback);
-  //glfwSetScrollCallback(window, scroll_callback);
 
   // settings
   int width, height;
   glfwGetWindowSize(window, &width, &height);
-  //glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-  glfwSwapInterval(1);  // enable/disable vsync
+  glfwSwapInterval(1); // vsync
 
   return 0;
 }
