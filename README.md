@@ -40,7 +40,7 @@ cmake --build .
    * Load texture with stb image
    * Render procedure
 - [X] Sprite Animation
-- [ ] Handle Keyboard input
-- [ ] Window Resizing
+- [X] Handle Keyboard input
 - [ ] Render Text
+- [ ] Window Resizing & Camera
 - [ ] Android Platform

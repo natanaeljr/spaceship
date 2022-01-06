@@ -4,6 +4,8 @@
 #include <optional>
 #include <variant>
 #include <algorithm>
+#include <unordered_map>
+#include <functional>
 
 #include <glbinding/gl33core/gl.h>
 #include <glbinding/glbinding.h>
@@ -469,16 +471,16 @@ struct SpriteFrame {
 
 /// Control data required for a single Sprite Animation object
 struct SpriteAnimation {
-  float last_transit_time; // last transition timestamp 
+  float last_transit_dt; // last transition deltatime 
   size_t curr_frame_idx;   // current frame index
   std::vector<SpriteFrame> frames;
 
   /// Transition frames
   void update_frame(float dt) {
+    last_transit_dt += dt;
     SpriteFrame& curr_frame = frames[curr_frame_idx];
-    float frame_dt = last_transit_time + curr_frame.duration;
-    if (dt >= frame_dt) {
-      last_transit_time = dt;
+    if (last_transit_dt >= curr_frame.duration) {
+      last_transit_dt -= curr_frame.duration;
       if (++curr_frame_idx == frames.size()) curr_frame_idx = 0;
     }
   }
@@ -547,6 +549,12 @@ struct Transform {
   }
 };
 
+/// Motion component
+struct Motion {
+  glm::vec3 velocity;
+  glm::vec3 acceleration;
+};
+
 /// Prepare to render
 void begin_render()
 {
@@ -607,24 +615,43 @@ struct Scene {
 
   struct {
     Transform transform;
+    Motion motion;
     std::optional<GLObject> glo;
     std::optional<GLTexture> texture;
     std::optional<SpriteAnimation> animation;
   } ligher;
 };
 
+/// GLFW_KEY_*
+using Key = int;
+/// Key event handler
+using KeyHandler = std::function<void(struct Game&, int key, int action, int mods)>;
+/// Map key code to event handlers
+using KeyHandlerMap = std::unordered_map<Key, KeyHandler>;
+/// Map key to its state, pressed = true, released = false
+using KeyStateMap = std::unordered_map<Key, bool>;
+
 /// Game State/Engine
 struct Game {
+  bool paused;
+  GLFWwindow* window;
   std::optional<Shaders> shaders;
   std::optional<Scene> scene;
+  std::optional<KeyHandlerMap> key_handlers;
+  std::optional<KeyStateMap> key_states;
 };
 
-int game_init(Game& game)
-{
-  float dt = glfwGetTime();
+void init_key_handlers(KeyHandlerMap& key_handlers);
 
+int game_init(Game& game, GLFWwindow* window)
+{
+  INFO("Initializing the game");
+  game.paused = false;
+  game.window = window;
   game.shaders = load_shaders();
   game.scene = Scene{};
+  game.key_handlers = KeyHandlerMap(GLFW_KEY_LAST); // reserve all keys to avoid rehash
+  game.key_states = KeyStateMap(GLFW_KEY_LAST);     // reserve all keys to avoid rehash
 
   game.scene->background.transform = Transform::identity();
   game.scene->background.transform.position.z = 0.99f;
@@ -636,15 +663,20 @@ int game_init(Game& game)
   };
 
   game.scene->spaceship.transform = Transform{
-    .position = glm::vec3(-0.45f, 0.0f, 0.0f),
+    .position = glm::vec3(-0.45f, 0.0f, -0.2f),
     .scale = glm::vec3(0.3f),
     .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
   };
 
   game.scene->ligher.transform = Transform{
-    .position = glm::vec3(0.0f, -0.7f, 0.0f),
-    .scale = glm::vec3(0.2f),
+    .position = glm::vec3(0.0f, -0.7f, -0.5f),
+    .scale = glm::vec3(0.1f),
     .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
+  };
+
+  game.scene->ligher.motion = Motion{
+    .velocity = glm::vec3(0.0f),
+    .acceleration = glm::vec3(0.0f),
   };
 
   DEBUG("Loading Background Texture");
@@ -670,7 +702,7 @@ int game_init(Game& game)
   game.scene->ligher.glo = create_textured_globject(game.shaders->texture_shader, ligher_vertices, ligher_indices);
   DEBUG("Loading Ligher Sprite Animation");
   game.scene->ligher.animation = SpriteAnimation{
-    .last_transit_time = dt,
+    .last_transit_dt = 0,
     .curr_frame_idx = 0,
     .frames = std::initializer_list<SpriteFrame>{
       { .duration = 0.1, .ebo_offset = 0, .ebo_count = 6 },
@@ -683,18 +715,57 @@ int game_init(Game& game)
   return 0;
 }
 
+void game_resume(Game& game)
+{
+  if (!game.paused) return;
+  INFO("Resuming the game");
+  game.paused = false;
+}
+
+void game_pause(Game& game)
+{
+  if (game.paused) return;
+  INFO("Pausing the game");
+
+  // Release all active keys
+  for (auto& key_state : game.key_states.value()) {
+    auto& key = key_state.first;
+    auto& active = key_state.second;
+    if (active) {
+      active = false;
+      auto it = game.key_handlers->find(key);
+      if (it != game.key_handlers->end()) {
+        auto& handler = it->second;
+        handler(game, key, GLFW_RELEASE, 0);
+      }
+    }
+  }
+
+  game.paused = true;
+}
+
 void game_update(Game& game)
 {
-  float dt = glfwGetTime();
-  game.scene->colored_quad.transform.position.y = std::sin(dt) * -0.4f;
-  game.scene->spaceship.transform.position.y = std::sin(dt) * 0.4f;
-  game.scene->ligher.transform.position.x = std::sin(dt) * -0.1f;
+  static float last_time = 0;
+  float time = glfwGetTime();
+  float dt = time - last_time;
+  game.scene->colored_quad.transform.position.y = std::sin(time) * -0.4f;
+  game.scene->spaceship.transform.position.y = std::sin(time) * 0.4f;
+  game.scene->ligher.motion.velocity += game.scene->ligher.motion.acceleration * dt;
+  game.scene->ligher.transform.position += game.scene->ligher.motion.velocity * dt;
   game.scene->ligher.animation->update_frame(dt);
+  last_time = time;
 }
 
 void game_render(Game& game)
 {
   begin_render();
+
+  GLShader& color_shader = game.shaders->color_shader;
+  color_shader.bind();
+  set_camera(color_shader);
+  auto& colored_quad = game.scene->colored_quad;
+  draw_object(color_shader, *colored_quad.glo, colored_quad.transform.model_mat());
 
   GLShader& texture_shader = game.shaders->texture_shader;
   texture_shader.bind();
@@ -709,20 +780,15 @@ void game_render(Game& game)
   auto& ligher = game.scene->ligher;
   SpriteFrame& ligher_frame = ligher.animation->frames[ligher.animation->curr_frame_idx];
   draw_textured_object(texture_shader, *ligher.texture, *ligher.glo, ligher.transform.model_mat(), ligher_frame.ebo_offset, ligher_frame.ebo_count);
-
-  GLShader& color_shader = game.shaders->color_shader;
-  color_shader.bind();
-  set_camera(color_shader);
-  auto& colored_quad = game.scene->colored_quad;
-  draw_object(color_shader, *colored_quad.glo, colored_quad.transform.model_mat());
 }
 
 int game_loop(GLFWwindow* window)
 {
-  int ret = 0;
   Game game;
-  ret = game_init(game);
+  int ret = game_init(game, window);
   if (ret) return ret;
+  init_key_handlers(*game.key_handlers);
+  glfwSetWindowUserPointer(window, &game);
   while (!glfwWindowShouldClose(window)) {
     game_update(game);
     game_render(game);
@@ -730,6 +796,96 @@ int game_loop(GLFWwindow* window)
     glfwPollEvents();
   }
   return 0;
+}
+
+void key_left_right_handler(struct Game& game, int key, int action, int mods)
+{
+  ASSERT(key == GLFW_KEY_LEFT || key == GLFW_KEY_RIGHT);
+  const float kFactor = (key == GLFW_KEY_LEFT ? -1.f : +1.f);
+  if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+    game.scene->ligher.motion.velocity.x = 0.5f * kFactor;
+    game.scene->ligher.motion.acceleration.x = 1.8f * kFactor;
+  }
+  else if (action == GLFW_RELEASE) {
+    const int other_key = (key == GLFW_KEY_LEFT) ? GLFW_KEY_RIGHT : GLFW_KEY_LEFT;
+    if (game.key_states.value()[other_key]) {
+      // revert to opposite key's movement
+      game.key_handlers.value()[other_key](game, other_key, GLFW_REPEAT, mods);
+    } else {
+      // both arrow keys release, cease movement
+      game.scene->ligher.motion.velocity.x = 0.0f;
+      game.scene->ligher.motion.acceleration.x = 0.0f;
+    }
+  }
+}
+
+void key_up_down_handler(struct Game& game, int key, int action, int mods)
+{
+  ASSERT(key == GLFW_KEY_UP || key == GLFW_KEY_DOWN);
+  const float kFactor = (key == GLFW_KEY_UP ? +1.f : -1.f);
+  if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+    game.scene->ligher.motion.velocity.y = 0.5f * kFactor;
+    game.scene->ligher.motion.acceleration.y = 1.2f * kFactor;
+  }
+  else if (action == GLFW_RELEASE) {
+    const int other_key = (key == GLFW_KEY_UP) ? GLFW_KEY_DOWN : GLFW_KEY_UP;
+    if (game.key_states.value()[other_key]) {
+      // revert to opposite key's movement
+      game.key_handlers.value()[other_key](game, other_key, GLFW_REPEAT, mods);
+    } else {
+      // both arrow keys release, cease movement
+      game.scene->ligher.motion.velocity.y = 0.0f;
+      game.scene->ligher.motion.acceleration.y = 0.0f; 
+    }
+  }
+}
+
+void init_key_handlers(KeyHandlerMap& key_handlers)
+{
+  key_handlers[GLFW_KEY_LEFT] = key_left_right_handler;
+  key_handlers[GLFW_KEY_RIGHT] = key_left_right_handler;
+  key_handlers[GLFW_KEY_UP] = key_up_down_handler;
+  key_handlers[GLFW_KEY_DOWN] = key_up_down_handler;
+}
+
+void key_event_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+  auto game = static_cast<Game*>(glfwGetWindowUserPointer(window));
+  if (!game) return; // game not initialized yet
+
+  if (action != GLFW_PRESS && action != GLFW_RELEASE)
+    return;
+
+  TRACE("Event key: {} action: {} mods: {}", key, action, mods);
+
+  // Handle Super key (special case)
+  if (key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER) {
+    if (action == GLFW_PRESS) game_pause(*game);
+    else if (action == GLFW_RELEASE) game_resume(*game);
+    return;
+  }
+
+  // Handle registered keys
+  auto it = game->key_handlers->find(key);
+  if (it != game->key_handlers->end()) {
+    auto& handler = it->second;
+    handler(*game, key, action, mods);
+  }
+  game->key_states.value()[key] = (action == GLFW_PRESS);
+}
+
+void window_focus_callback(GLFWwindow* window, int focused)
+{
+  auto game = static_cast<Game*>(glfwGetWindowUserPointer(window));
+  if (!game) return; // game not initialized yet
+
+  if (focused) {
+    INFO("Window Focused");
+    game_resume(*game);
+  } else /* unfocused */ {
+    INFO("Window Unfocused");
+    game_pause(*game);
+  }
 }
 
 int create_window(GLFWwindow*& window)
@@ -745,8 +901,11 @@ int create_window(GLFWwindow*& window)
     glfwTerminate();
     return -3;
   }
-
   glfwMakeContextCurrent(window);
+
+  // callbacks
+  glfwSetKeyCallback(window, key_event_callback);
+  glfwSetWindowFocusCallback(window, window_focus_callback);
 
   // settings
   int width, height;
