@@ -46,7 +46,7 @@ find_package(glbinding REQUIRED)
 # GLM for opengl mathematics library
 find_package(glm 0.9.9.9 EXACT REQUIRED)
 # STB for image loading/decoding
-find_package(stb 0.8.1 EXACT REQUIRED COMPONENTS stb_image)
+find_package(stb 0.9.0 EXACT REQUIRED)
 # GSL for types and functions of C++ Core Guidelines
 find_package(Microsoft.GSL 3.1.0 EXACT REQUIRED)
 
@@ -64,6 +64,8 @@ target_link_libraries(spaceship PRIVATE
     glm::glm
     spdlog::spdlog
     stb::stb_image
+    stb::stb_truetype
+    stb::stb_rect_pack
     Microsoft.GSL::GSL
     glfw
     glbinding::glbinding

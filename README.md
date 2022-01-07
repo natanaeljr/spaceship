@@ -16,7 +16,7 @@ Feel free to learn with the code, I am learning coding it too ;)
 mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Debug
-cmake --build .
+cmake --build . --parallel $(nproc)
 ```
 
 ## Running
@@ -41,6 +41,11 @@ cmake --build .
    * Render procedure
 - [X] Sprite Animation
 - [X] Handle Keyboard input
-- [ ] Render Text
+- [X] Render Text
+   * Load TTF font
+   * Generate Text Quads
+   * Render procedure
+   * FPS Counter
+   * Generic Shader (color-texture-font)
 - [ ] Window Resizing & Camera
 - [ ] Android Platform

@@ -12,7 +12,7 @@
 	url = https://github.com/g-truc/glm.git
 [submodule "external/stb"]
 	path = external/stb
-	url = git@github.com:natanaeljr/stb-cmake-package.git
+	url = https://github.com/natanaeljr/stb-cmake-package.git
 [submodule "external/gsl"]
 	path = external/gsl
 	url = https://github.com/microsoft/GSL.git

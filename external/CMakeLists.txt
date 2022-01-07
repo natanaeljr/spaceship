@@ -97,7 +97,9 @@ ExternalProject_Add(stb_external
         -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
         -DCMAKE_GENERATOR=${CMAKE_GENERATOR}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DSTB_IMAGE=ON)
+        -DSTB_IMAGE=ON
+        -DSTB_TRUETYPE=ON
+        -DSTB_RECT_PACK=ON)
 
 #########################################################################################
 # GSL
