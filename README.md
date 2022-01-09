@@ -47,5 +47,6 @@ cmake --build . --parallel $(nproc)
    * Render procedure
    * FPS Counter
    * Generic Shader (color-texture-font)
-- [ ] Window Resizing & Camera
+- [X] Window Resizing & Camera
+- [ ] Game FSM & Levels
 - [ ] Android Platform

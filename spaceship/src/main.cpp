@@ -558,8 +558,8 @@ auto load_rgba_texture(const std::string& inpath) -> std::optional<GLTexture>
   GLuint texture;
   glGenTextures(1, &texture);
   glBindTexture(GL_TEXTURE_2D, texture); 
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);	
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, type, GL_UNSIGNED_BYTE, data);
@@ -704,7 +704,31 @@ auto update_text_globject(const GLShader& shader, GLObject& glo, const GLFont& f
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// Defines
+
+static constexpr size_t kWidth = 500;
+static constexpr size_t kHeight = 700;
+static constexpr float kAspectRatio = (float)kWidth / (float)kHeight;
+static constexpr float kAspectRatioInverse = (float)kHeight / (float)kWidth;
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Components
+
+/// Camera compenent
+struct Camera {
+  glm::mat4 projection;
+  glm::mat4 view;
+
+  /// Create Orthographic Camera
+  static Camera create() {
+    const float zoom_level = 1.0f;
+    const float rotation = 0.0f;
+    return {
+      .projection = glm::ortho(-kAspectRatio * zoom_level, +kAspectRatio * zoom_level, -zoom_level, +zoom_level, +1.0f, -1.0f),
+      .view = glm::inverse(glm::rotate(glm::mat4(1.0f), glm::radians(rotation), glm::vec3(0, 0, 1))),
+    };
+  }
+};
 
 /// Transform component
 struct Transform {
@@ -720,7 +744,7 @@ struct Transform {
     };
   }
 
-  glm::mat4 model_mat() {
+  glm::mat4 matrix() {
     glm::mat4 translation_mat = glm::translate(glm::mat4(1.0f), position);
     glm::mat4 rotation_mat = glm::toMat4(rotation);
     glm::mat4 scale_mat = glm::scale(glm::mat4(1.0f), scale);
@@ -744,17 +768,15 @@ void begin_render()
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-  glClearColor(0.1f, 0.2f, 0.3f, 1.0f);
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
 /// Upload camera matrix to shader
-void set_camera(const GLShader& shader)
+void set_camera(const GLShader& shader, const Camera& camera)
 {
-  auto view = glm::mat4(1.0f);
-  auto projection = glm::mat4(1.0f);
-  glUniformMatrix4fv(shader.unif_loc(GLUnif::VIEW), 1, GL_FALSE, glm::value_ptr(view));
-  glUniformMatrix4fv(shader.unif_loc(GLUnif::PROJECTION), 1, GL_FALSE, glm::value_ptr(projection));
+  glUniformMatrix4fv(shader.unif_loc(GLUnif::VIEW), 1, GL_FALSE, glm::value_ptr(camera.view));
+  glUniformMatrix4fv(shader.unif_loc(GLUnif::PROJECTION), 1, GL_FALSE, glm::value_ptr(camera.projection));
 }
 
 /// Render a colored GLObject with indices
@@ -848,6 +870,7 @@ using KeyStateMap = std::unordered_map<Key, bool>;
 struct Game {
   bool paused;
   GLFWwindow* window;
+  std::optional<Camera> camera;
   std::optional<Shaders> shaders;
   std::optional<Fonts> fonts;
   std::optional<Scene> scene;
@@ -862,29 +885,33 @@ int game_init(Game& game, GLFWwindow* window)
   INFO("Initializing game");
   game.paused = false;
   game.window = window;
+  game.camera = Camera::create();
   game.shaders = load_shaders();
   game.fonts = load_fonts();
   game.scene = Scene{};
   game.key_handlers = KeyHandlerMap(GLFW_KEY_LAST); // reserve all keys to avoid rehash
   game.key_states = KeyStateMap(GLFW_KEY_LAST);     // reserve all keys to avoid rehash
 
-  game.scene->background.transform = Transform::identity();
-  game.scene->background.transform.position.z = 0.99f;
+  game.scene->background.transform  = Transform{
+    .position = glm::vec3(0.0f * kAspectRatio, 0.0f, 0.1f),
+    .scale = glm::vec3(kAspectRatio, 1.0f, 1.0f),
+    .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
+  };
 
   game.scene->colored_quad.transform = Transform{
-    .position = glm::vec3(0.45f, 0.0f, -0.1f),
+    .position = glm::vec3(0.45f * kAspectRatio, 0.0f, -0.1f),
     .scale = glm::vec3(0.3f),
     .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
   };
 
   game.scene->spaceship.transform = Transform{
-    .position = glm::vec3(-0.45f, 0.0f, -0.2f),
+    .position = glm::vec3(-0.45f * kAspectRatio, 0.0f, -0.2f),
     .scale = glm::vec3(0.3f),
     .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
   };
 
   game.scene->ligher.transform = Transform{
-    .position = glm::vec3(0.0f, -0.7f, -0.5f),
+    .position = glm::vec3(0.0f * kAspectRatio, -0.7f, -0.5f),
     .scale = glm::vec3(0.1f),
     .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
   };
@@ -895,7 +922,7 @@ int game_init(Game& game, GLFWwindow* window)
   };
 
   auto fps_transform = Transform::identity();
-  fps_transform.position = glm::vec3(-0.99f);
+  fps_transform.position = glm::vec3(-0.99f * kAspectRatio, -0.99f, -0.99f);
   fps_transform.scale = glm::vec3(0.0033f);
   fps_transform.scale.y = -fps_transform.scale.y;
   game.scene->fps.transform = std::move(fps_transform);
@@ -1012,24 +1039,24 @@ void game_render(Game& game, float dt, float time)
 
   GLShader& generic_shader = game.shaders->generic_shader;
   generic_shader.bind();
-  set_camera(generic_shader);
+  set_camera(generic_shader, *game.camera);
 
   auto& colored_quad = game.scene->colored_quad;
-  draw_colored_object(generic_shader, *colored_quad.glo, colored_quad.transform.model_mat());
+  draw_colored_object(generic_shader, *colored_quad.glo, colored_quad.transform.matrix());
 
   auto& background = game.scene->background;
-  draw_textured_object(generic_shader, *background.texture, *background.glo, background.transform.model_mat(), 0, background.glo->num_indices);
+  draw_textured_object(generic_shader, *background.texture, *background.glo, background.transform.matrix(), 0, background.glo->num_indices);
 
   auto& spaceship = game.scene->spaceship;
-  draw_textured_object(generic_shader, *spaceship.texture, *spaceship.glo, spaceship.transform.model_mat(), 0, spaceship.glo->num_indices);
+  draw_textured_object(generic_shader, *spaceship.texture, *spaceship.glo, spaceship.transform.matrix(), 0, spaceship.glo->num_indices);
 
   auto& ligher = game.scene->ligher;
   SpriteFrame& ligher_frame = ligher.animation->frames[ligher.animation->curr_frame_idx];
-  draw_textured_object(generic_shader, *ligher.texture, *ligher.glo, ligher.transform.model_mat(), ligher_frame.ebo_offset, ligher_frame.ebo_count);
+  draw_textured_object(generic_shader, *ligher.texture, *ligher.glo, ligher.transform.matrix(), ligher_frame.ebo_offset, ligher_frame.ebo_count);
 
   auto& fps = game.scene->fps;
   update_fps(generic_shader, *fps.glo, game.fonts->russo_one, dt);
-  draw_text_object(generic_shader, game.fonts->russo_one.texture, *fps.glo, fps.transform.model_mat(), glm::vec4(1.f), glm::vec4(glm::vec3(0.f), 1.f), 1.0f);
+  draw_text_object(generic_shader, game.fonts->russo_one.texture, *fps.glo, fps.transform.matrix(), glm::vec4(glm::vec3(0.87f), 1.f), glm::vec4(glm::vec3(0.f), 1.f), 1.0f);
 }
 
 int game_loop(GLFWwindow* window)
@@ -1058,10 +1085,10 @@ int game_loop(GLFWwindow* window)
 void key_left_right_handler(struct Game& game, int key, int action, int mods)
 {
   ASSERT(key == GLFW_KEY_LEFT || key == GLFW_KEY_RIGHT);
-  const float kFactor = (key == GLFW_KEY_LEFT ? -1.f : +1.f);
+  const float direction = (key == GLFW_KEY_LEFT ? -1.f : +1.f);
   if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-    game.scene->ligher.motion.velocity.x = 0.5f * kFactor;
-    game.scene->ligher.motion.acceleration.x = 1.8f * kFactor;
+    game.scene->ligher.motion.velocity.x = 0.5f * direction;
+    game.scene->ligher.motion.acceleration.x = 1.8f * direction;
   }
   else if (action == GLFW_RELEASE) {
     const int other_key = (key == GLFW_KEY_LEFT) ? GLFW_KEY_RIGHT : GLFW_KEY_LEFT;
@@ -1079,10 +1106,10 @@ void key_left_right_handler(struct Game& game, int key, int action, int mods)
 void key_up_down_handler(struct Game& game, int key, int action, int mods)
 {
   ASSERT(key == GLFW_KEY_UP || key == GLFW_KEY_DOWN);
-  const float kFactor = (key == GLFW_KEY_UP ? +1.f : -1.f);
+  const float direction = (key == GLFW_KEY_UP ? +1.f : -1.f);
   if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-    game.scene->ligher.motion.velocity.y = 0.5f * kFactor;
-    game.scene->ligher.motion.acceleration.y = 1.2f * kFactor;
+    game.scene->ligher.motion.velocity.y = 0.5f * direction;
+    game.scene->ligher.motion.acceleration.y = 1.2f * direction;
   }
   else if (action == GLFW_RELEASE) {
     const int other_key = (key == GLFW_KEY_UP) ? GLFW_KEY_DOWN : GLFW_KEY_UP;
@@ -1145,6 +1172,20 @@ void window_focus_callback(GLFWwindow* window, int focused)
   }
 }
 
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+  float x_rest = 0.0f;
+  float y_rest = 0.0f;
+  float aspect = ((float)width / (float)height);
+  if (aspect < kAspectRatio)
+    y_rest = height - (width * kAspectRatioInverse);
+  else
+    x_rest = width - (height * kAspectRatio);
+  float x_off = x_rest / 2.f;
+  float y_off = y_rest / 2.f;
+  glViewport(x_off, y_off, (width - x_rest), (height - y_rest));
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Setup
 
@@ -1155,7 +1196,7 @@ int create_window(GLFWwindow*& window)
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-  window = glfwCreateWindow(500, 700, "Spaceship", nullptr, nullptr);
+  window = glfwCreateWindow(kWidth, kHeight, "Spaceship", nullptr, nullptr);
   if (window == nullptr) {
     std::cerr << "Failed to create GLFW window" << std::endl;
     glfwTerminate();
@@ -1166,10 +1207,10 @@ int create_window(GLFWwindow*& window)
   // callbacks
   glfwSetKeyCallback(window, key_event_callback);
   glfwSetWindowFocusCallback(window, window_focus_callback);
+  glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
   // settings
-  int width, height;
-  glfwGetWindowSize(window, &width, &height);
+  glfwSetWindowAspectRatio(window, kWidth, kHeight);
   glfwSwapInterval(0); // vsync
 
   return 0;
