@@ -58,10 +58,7 @@ auto read_file_to_string(const std::string& filename) -> std::optional<std::stri
 {
   std::string string;
   std::fstream fstream(filename);
-  if (!fstream) {
-    ERROR("Failed to open file ({}): {}", filename, std::strerror(errno));
-    return std::nullopt;
-  }
+  if (!fstream) { ERROR("{} ({})", std::strerror(errno), filename); return std::nullopt; }
   fstream.seekg(0, std::ios::end);
   string.reserve(fstream.tellg());
   fstream.seekg(0, std::ios::beg);
@@ -73,6 +70,7 @@ auto read_file_to_string(const std::string& filename) -> std::optional<std::stri
 template<typename T>
 struct UniqueNum {
   T inner;
+  UniqueNum() : inner(0) {}
   UniqueNum(T n) : inner(n) {}
   UniqueNum(UniqueNum&& o) : inner(o.inner) { o.inner = 0; }
   UniqueNum& operator=(UniqueNum&& o) { inner = o.inner; o.inner = 0; return *this; }
@@ -388,6 +386,9 @@ struct GLObject {
   GLObject& operator=(const GLObject&) = delete;
 };
 
+/// GLObject reference type alias
+using GLObjectRef = std::shared_ptr<GLObject>;
+
 /// Upload new Colored Indexed-Vertex object to GPU memory
 GLObject create_colored_globject(const GLShader& shader, gsl::span<const ColorVertex> vertices, gsl::span<const GLushort> indices, GLenum usage = GL_STATIC_DRAW)
 {
@@ -405,7 +406,6 @@ GLObject create_colored_globject(const GLShader& shader, gsl::span<const ColorVe
   glDisableVertexAttribArray(shader.attr_loc(GLAttr::TEXCOORD));
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size_bytes(), indices.data(), usage);
-  glBindVertexArray(0);
   return { vbo, ebo, vao, indices.size(), vertices.size() };
 }
 
@@ -426,7 +426,6 @@ GLObject create_textured_globject(const GLShader& shader, gsl::span<const Textur
   glDisableVertexAttribArray(shader.attr_loc(GLAttr::COLOR));
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size_bytes(), indices.data(), usage);
-  glBindVertexArray(0);
   return { vbo, ebo, vao, indices.size(), vertices.size() };
 }
 
@@ -512,7 +511,7 @@ struct SpriteFrame {
 
 /// Control data required for a single Sprite Animation object
 struct SpriteAnimation {
-  float last_transit_dt; // last transition deltatime 
+  float last_transit_dt; // deltatime between last transition and now
   size_t curr_frame_idx;   // current frame index
   std::vector<SpriteFrame> frames;
 
@@ -525,6 +524,9 @@ struct SpriteAnimation {
       if (++curr_frame_idx == frames.size()) curr_frame_idx = 0;
     }
   }
+
+  /// Get current sprite frame
+  SpriteFrame& curr_frame() { return frames[curr_frame_idx]; }
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -545,28 +547,54 @@ struct GLTexture {
   GLTexture& operator=(const GLTexture&) = delete;
 };
 
+/// GLTexture reference type alias
+using GLTextureRef = std::shared_ptr<GLTexture>;
+
 /// Read file and upload RGB/RBGA texture to GPU memory
-auto load_rgba_texture(const std::string& inpath) -> std::optional<GLTexture>
+auto load_rgba_texture(const std::string& inpath, GLenum min_filter, GLenum mag_filter = GLenum(0)) -> std::optional<GLTexture>
 {
   const std::string filepath = SPACESHIP_ASSETS_PATH + "/"s + inpath;
+  auto file = read_file_to_string(filepath);
+  if (!file) { ERROR("Failed to read texture path ({})", filepath); return std::nullopt; }
   int width, height, channels;
   stbi_set_flip_vertically_on_load(true);
-  unsigned char* data = stbi_load(filepath.data(), &width, &height, &channels, 0);
+  unsigned char* data = stbi_load_from_memory((const uint8_t*)file->data(), file->length(), &width, &height, &channels, 0);
   if (!data) { ERROR("Failed to load texture path ({})", filepath); return std::nullopt; }
   ASSERT_MSG(channels == 4 || channels == 3, "actual channels: {}", channels);
   GLenum type = (channels == 4) ? GL_RGBA : GL_RGB;
   GLuint texture;
   glGenTextures(1, &texture);
-  glBindTexture(GL_TEXTURE_2D, texture); 
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);	
+  glBindTexture(GL_TEXTURE_2D, texture);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag_filter != GLenum(0) ? mag_filter : min_filter);
   glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, type, GL_UNSIGNED_BYTE, data);
   glGenerateMipmap(GL_TEXTURE_2D);
   stbi_image_free(data);
   return GLTexture{ texture };
 }
+
+/// Holds the textures used by the game
+class Textures {
+  std::unordered_map<std::string, GLTextureRef> map;
+
+ public:
+  /// Get a Texture ID from cache, or load it if not cached yet
+  template<typename ...Args>
+  auto get_or_load(const std::string& texpath, Args&&... args) -> std::optional<GLTextureRef> {
+    auto it = map.find(texpath);
+    if (it != map.end()) {
+      return it->second;
+    } else {
+      auto tex = load_rgba_texture(texpath, std::forward<Args>(args)...);
+      if (!tex) return std::nullopt;
+      auto texptr = std::make_shared<GLTexture>(std::move(*tex));
+      map.emplace(texpath, texptr);
+      return texptr;
+    }
+  }
+};
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Fonts
@@ -596,6 +624,9 @@ struct GLFont {
   int char_count;
   std::vector<stbtt_packedchar> chars;
 };
+
+/// GLFont reference type alias
+using GLFontRef = std::shared_ptr<GLFont>;
 
 /// Read font file and upload generated bitmap texture to GPU memory
 auto load_font(const std::string& fontname) -> std::optional<GLFont>
@@ -636,22 +667,22 @@ auto load_font(const std::string& fontname) -> std::optional<GLFont>
 
 /// Holds the fonts used by the game
 struct Fonts {
-  GLFont menlo;
-  GLFont jetbrains;
-  GLFont google_sans;
-  GLFont kanit;
-  GLFont russo_one;
+  GLFontRef menlo;
+  GLFontRef jetbrains;
+  GLFontRef google_sans;
+  GLFontRef kanit;
+  GLFontRef russo_one;
 };
 
 /// Loads all fonts used by the game
 Fonts load_fonts()
 {
   return {
-    .menlo = ASSERT_OPT(load_font("Menlo-Regular.ttf")),
-    .jetbrains = ASSERT_OPT(load_font("JetBrainsMono-Regular.ttf")),
-    .google_sans = ASSERT_OPT(load_font("GoogleSans-Regular.ttf")),
-    .kanit = ASSERT_OPT(load_font("Kanit/Kanit-Bold.ttf")),
-    .russo_one = ASSERT_OPT(load_font("Russo_One/RussoOne-Regular.ttf")),
+    .menlo = std::make_shared<GLFont>(ASSERT_OPT(load_font("Menlo-Regular.ttf"))),
+    .jetbrains = std::make_shared<GLFont>(ASSERT_OPT(load_font("JetBrainsMono-Regular.ttf"))),
+    .google_sans = std::make_shared<GLFont>(ASSERT_OPT(load_font("GoogleSans-Regular.ttf"))),
+    .kanit = std::make_shared<GLFont>(ASSERT_OPT(load_font("Kanit/Kanit-Bold.ttf"))),
+    .russo_one = std::make_shared<GLFont>(ASSERT_OPT(load_font("Russo_One/RussoOne-Regular.ttf"))),
   };
 }
 
@@ -695,67 +726,31 @@ auto update_text_globject(const GLShader& shader, GLObject& glo, const GLFont& f
   auto [vertices, indices] = gen_text_quads(font, text);
   if (vertices.size() == glo.num_vertices && indices.size() == glo.num_indices) {
     glBindVertexArray(glo.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, glo.vbo);
     glBufferSubData(GL_ARRAY_BUFFER, 0, vertices.size() * sizeof(TextureVertex), vertices.data());
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, glo.ebo);
     glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, indices.size() * sizeof(GLushort), indices.data());
-    glBindVertexArray(0);
   } else {
     glo = create_text_globject(shader, vertices, indices, usage);
   }
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// Defines
+/// Camera
 
-static constexpr size_t kWidth = 500;
-static constexpr size_t kHeight = 700;
-static constexpr float kAspectRatio = (float)kWidth / (float)kHeight;
-static constexpr float kAspectRatioInverse = (float)kHeight / (float)kWidth;
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// Components
-
-/// Camera compenent
 struct Camera {
   glm::mat4 projection;
   glm::mat4 view;
 
   /// Create Orthographic Camera
-  static Camera create() {
+  static Camera create(float aspect_ratio) {
     const float zoom_level = 1.0f;
     const float rotation = 0.0f;
     return {
-      .projection = glm::ortho(-kAspectRatio * zoom_level, +kAspectRatio * zoom_level, -zoom_level, +zoom_level, +1.0f, -1.0f),
+      .projection = glm::ortho(-aspect_ratio * zoom_level, +aspect_ratio * zoom_level, -zoom_level, +zoom_level, +1.0f, -1.0f),
       .view = glm::inverse(glm::rotate(glm::mat4(1.0f), glm::radians(rotation), glm::vec3(0, 0, 1))),
     };
   }
-};
-
-/// Transform component
-struct Transform {
-  glm::vec3 position;
-  glm::vec3 scale;
-  glm::quat rotation;
-
-  static Transform identity() {
-    return {
-      .position = glm::vec3(0.0f),
-      .scale = glm::vec3(1.0f),
-      .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
-    };
-  }
-
-  glm::mat4 matrix() {
-    glm::mat4 translation_mat = glm::translate(glm::mat4(1.0f), position);
-    glm::mat4 rotation_mat = glm::toMat4(rotation);
-    glm::mat4 scale_mat = glm::scale(glm::mat4(1.0f), scale);
-    return translation_mat * rotation_mat * scale_mat;
-  }
-};
-
-/// Motion component
-struct Motion {
-  glm::vec3 velocity;
-  glm::vec3 acceleration;
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -764,12 +759,11 @@ struct Motion {
 /// Prepare to render
 void begin_render()
 {
-  glEnable(GL_DEPTH_TEST);
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
   glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glClear(GL_COLOR_BUFFER_BIT);
 }
 
 /// Upload camera matrix to shader
@@ -787,7 +781,6 @@ void draw_colored_object(const GLShader& shader, const GLObject& glo, const glm:
   glUniformMatrix4fv(shader.unif_loc(GLUnif::MODEL), 1, GL_FALSE, glm::value_ptr(model));
   glBindVertexArray(glo.vao);
   glDrawElements(GL_TRIANGLES, glo.num_indices, GL_UNSIGNED_SHORT, nullptr);
-  glBindVertexArray(0);
 }
 
 /// Render a textured GLObject with indices
@@ -801,7 +794,6 @@ void draw_textured_object(const GLShader& shader, const GLTexture& texture, cons
   glBindTexture(GL_TEXTURE_2D, texture.id);
   glBindVertexArray(glo.vao);
   glDrawElements(GL_TRIANGLES, ebo_count, GL_UNSIGNED_SHORT, (const void*)ebo_offset);
-  glBindVertexArray(0);
 }
 
 /// Render a text GLObject with indices
@@ -818,44 +810,15 @@ void draw_text_object(const GLShader& shader, const GLTexture& texture, const GL
   glBindTexture(GL_TEXTURE_2D, texture.id);
   glBindVertexArray(glo.vao);
   glDrawElements(GL_TRIANGLES, glo.num_indices, GL_UNSIGNED_SHORT, nullptr);
-  glBindVertexArray(0);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// Game
+/// Forward-declarations
 
-/// Generic Scene structure
-struct Scene {
-  struct {
-    Transform transform;
-    std::optional<GLObject> glo;
-    std::optional<GLTexture> texture;
-  } background;
-
-  struct {
-    Transform transform;
-    std::optional<GLObject> glo;
-  } colored_quad;
-
-  struct {
-    Transform transform;
-    std::optional<GLObject> glo;
-    std::optional<GLTexture> texture;
-  } spaceship;
-
-  struct {
-    Transform transform;
-    Motion motion;
-    std::optional<GLObject> glo;
-    std::optional<GLTexture> texture;
-    std::optional<SpriteAnimation> animation;
-  } ligher;
-
-  struct {
-    Transform transform;
-    std::optional<GLObject> glo;
-  } fps;
-};
+static constexpr size_t kWidth = 500;
+static constexpr size_t kHeight = 700;
+static constexpr float kAspectRatio = (float)kWidth / (float)kHeight;
+static constexpr float kAspectRatioInverse = (float)kHeight / (float)kWidth;
 
 /// GLFW_KEY_*
 using Key = int;
@@ -866,6 +829,95 @@ using KeyHandlerMap = std::unordered_map<Key, KeyHandler>;
 /// Map key to its state, pressed = true, released = false
 using KeyStateMap = std::unordered_map<Key, bool>;
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// Components
+
+/// Tag component
+struct Tag {
+  char name[20] = "?";
+};
+
+/// Transform component
+struct Transform {
+  glm::vec2 position {0.0f};
+  glm::vec2 scale    {0.5f};
+  float rotation     {0.0f};
+
+  glm::mat4 matrix() {
+    glm::mat4 translation_mat = glm::translate(glm::mat4(1.0f), glm::vec3(position, 0.0f));
+    glm::mat4 rotation_mat = glm::rotate(glm::mat4(1.0f), glm::radians(rotation), glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::mat4 scale_mat = glm::scale(glm::mat4(1.0f), glm::vec3(scale, 1.0f));
+    return translation_mat * rotation_mat * scale_mat;
+  }
+};
+
+/// Motion component
+struct Motion {
+  glm::vec2 velocity     {0.0f};
+  glm::vec2 acceleration {0.0f};
+};
+
+/// Text Format component
+struct TextFormat {
+  GLFontRef font;
+  glm::vec4 color         {1.0f};
+  glm::vec4 outline_color {glm::vec3(0.0f), 1.0f};
+  float outline_thickness {1.0f};
+};
+
+/// Custom Update Function component
+struct UpdateFn {
+  std::function<void(struct GameObject& obj, float dt, float time)> fn  { [](auto&&...){} };
+};
+
+/// Timed Action component
+struct TimedAction {
+  float tick_dt;  // deltatime between last round and now
+  float duration; // time to go off, in seconds
+  std::function<void(Game& game, float dt, float time)> action  { [](auto&&...){} };
+
+  /// Update timer and invoke action on expire
+  void update(Game& game, float dt, float time) {
+    tick_dt += dt;
+    if (tick_dt >= duration) {
+      tick_dt -= duration;
+      action(game, dt, time);
+    }
+  }
+};
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// Game
+
+/// Game Object represents a single Entity with Components
+struct GameObject {
+  Tag tag;
+  Transform transform;
+  Motion motion;
+  GLObjectRef glo;
+  std::optional<GLTextureRef> texture;
+  std::optional<SpriteAnimation> animation;
+  std::optional<TextFormat> text_fmt;
+  std::optional<UpdateFn> update;
+};
+
+/// Lists of all Game Objects in a Scene, divised in layers, in order of render
+struct ObjectLists {
+  std::vector<GameObject> background;
+  std::vector<GameObject> spaceship;
+  std::vector<GameObject> projectile;
+  std::vector<GameObject> gui;
+  std::vector<GameObject> text;
+  /// Get all layers of objects
+  auto all_lists() { return std::array{ &background, &spaceship, &projectile, &gui, &text }; }
+};
+
+/// Generic Scene structure
+struct Scene {
+  ObjectLists objects;
+  GameObject& player() { return objects.spaceship.front(); }
+};
+
 /// Game State/Engine
 struct Game {
   bool paused;
@@ -874,95 +926,155 @@ struct Game {
   std::optional<Shaders> shaders;
   std::optional<Fonts> fonts;
   std::optional<Scene> scene;
+  std::optional<Textures> textures;
   std::optional<KeyHandlerMap> key_handlers;
   std::optional<KeyStateMap> key_states;
+  std::unordered_map<int, TimedAction> timed_actions;
+  struct {
+    Transform transform;
+    TextFormat text_fmt;
+    std::optional<GLObject> glo;
+  } fps;
 };
 
-void init_key_handlers(KeyHandlerMap& key_handlers);
+/// Create a player spaceship fired projectile object
+GameObject create_player_projectile(Game& game)
+{
+  GameObject obj;
+  obj.tag = Tag{"projectile"};
+  obj.transform = Transform{
+    .position = glm::vec2(0.0f, 0.0f),
+    .scale = glm::vec2(0.15f),
+    .rotation = 0.0f
+  };
+  obj.motion = Motion{
+    .velocity = glm::vec2(0.0f, 2.6f),
+    .acceleration = glm::vec2(0.0f),
+  };
+  obj.texture = ASSERT_OPT(game.textures->get_or_load("Projectile01.png", GL_LINEAR));
+  obj.glo = std::make_shared<GLObject>(create_textured_quad_globject(game.shaders->generic_shader));
+  return obj;
+}
 
 int game_init(Game& game, GLFWwindow* window)
 {
   INFO("Initializing game");
   game.paused = false;
   game.window = window;
-  game.camera = Camera::create();
+  game.camera = Camera::create(kAspectRatio);
   game.shaders = load_shaders();
   game.fonts = load_fonts();
   game.scene = Scene{};
+  game.textures = Textures{};
   game.key_handlers = KeyHandlerMap(GLFW_KEY_LAST); // reserve all keys to avoid rehash
   game.key_states = KeyStateMap(GLFW_KEY_LAST);     // reserve all keys to avoid rehash
 
-  game.scene->background.transform  = Transform{
-    .position = glm::vec3(0.0f * kAspectRatio, 0.0f, 0.1f),
-    .scale = glm::vec3(kAspectRatio, 1.0f, 1.0f),
-    .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
+  { // Background
+    game.scene->objects.background.push_back({});
+    GameObject& background = game.scene->objects.background.back();
+    background.tag = Tag{"background"};
+    background.transform = Transform{
+      .position = glm::vec2(0.0f),
+      .scale = glm::vec2(kAspectRatio + 0.1f, 1.1f),
+      .rotation = 0.0f,
+    };
+    background.motion = Motion{
+      .velocity = glm::vec2(0.014f, 0.004f),
+      .acceleration = glm::vec2(0.0f),
+    };
+    DEBUG("Loading Background Texture");
+    background.texture = ASSERT_OPT(game.textures->get_or_load("background01.png", GL_NEAREST));
+    DEBUG("Loading Background Quad");
+    background.glo = std::make_shared<GLObject>(create_textured_quad_globject(game.shaders->generic_shader));
+    background.update = UpdateFn{ [] (struct GameObject& obj, float dt, float time) {
+      if (obj.transform.position.x < -0.03f || obj.transform.position.x >= +0.03f)
+        obj.motion.velocity.x = -obj.motion.velocity.x;
+      if (obj.transform.position.y < -0.03f || obj.transform.position.y >= +0.03f)
+        obj.motion.velocity.y = -obj.motion.velocity.y;
+    }};
+  }
+
+  { // Player
+    game.scene->objects.spaceship.push_back({});
+    GameObject& player = game.scene->objects.spaceship.back();
+    player.tag = Tag{"player"};
+    player.transform = Transform{
+      .position = glm::vec2(0.0f, -0.7f),
+      .scale = glm::vec2(0.1f),
+      .rotation = 0.0f,
+    };
+    player.motion = Motion{
+      .velocity = glm::vec2(0.0f),
+      .acceleration = glm::vec2(0.0f),
+    };
+    DEBUG("Loading Player Spaceship Texture");
+    player.texture = ASSERT_OPT(game.textures->get_or_load("Lightning.png", GL_NEAREST));
+    DEBUG("Loading Player Spaceship Vertices");
+    auto [vertices, indices] = gen_sprite_quads(4);
+    player.glo = std::make_shared<GLObject>(create_textured_globject(game.shaders->generic_shader, vertices, indices));
+    DEBUG("Loading Player Spaceship Sprite Animation");
+    player.animation = SpriteAnimation{
+      .last_transit_dt = 0,
+      .curr_frame_idx = 0,
+      .frames = std::initializer_list<SpriteFrame>{
+        { .duration = 0.1, .ebo_offset = 0, .ebo_count = 6 },
+        { .duration = 0.1, .ebo_offset = 6, .ebo_count = 6 },
+        { .duration = 0.1, .ebo_offset = 12, .ebo_count = 6 },
+        { .duration = 0.1, .ebo_offset = 18, .ebo_count = 6 },
+      },
+    };
+  }
+
+  { // Enemy
+    game.scene->objects.spaceship.push_back({});
+    GameObject& enemy = game.scene->objects.spaceship.back();
+    enemy.tag = Tag{"enemy"};
+    enemy.transform = Transform{
+      .position = glm::vec2(0.0f, +0.5f),
+      .scale = glm::vec2(0.08f, -0.08f),
+      .rotation = 0.0f
+    };
+    enemy.motion = Motion{
+      .velocity = glm::vec2(0.0f),
+      .acceleration = glm::vec2(0.0f),
+    };
+    DEBUG("Loading Enemy Spaceship Texture");
+    enemy.texture = ASSERT_OPT(game.textures->get_or_load("Saboteur.png", GL_NEAREST));
+    DEBUG("Loading Enemy Spaceship Vertices");
+    auto [vertices, indices] = gen_sprite_quads(4);
+    enemy.glo = std::make_shared<GLObject>(create_textured_globject(game.shaders->generic_shader, vertices, indices));
+    DEBUG("Loading Enemy Spaceship Sprite Animation");
+    enemy.animation = SpriteAnimation{
+      .last_transit_dt = 0,
+      .curr_frame_idx = 0,
+      .frames = std::initializer_list<SpriteFrame>{
+        { .duration = 0.1, .ebo_offset = 0, .ebo_count = 6 },
+        { .duration = 0.1, .ebo_offset = 6, .ebo_count = 6 },
+        { .duration = 0.1, .ebo_offset = 12, .ebo_count = 6 },
+        { .duration = 0.1, .ebo_offset = 18, .ebo_count = 6 },
+      },
+    };
+    enemy.update = UpdateFn{ [] (struct GameObject& obj, float dt, float time) {
+      obj.transform.position.x = std::sin(time) * 0.4f;
+    }};
   };
 
-  game.scene->colored_quad.transform = Transform{
-    .position = glm::vec3(0.45f * kAspectRatio, 0.0f, -0.1f),
-    .scale = glm::vec3(0.3f),
-    .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
-  };
-
-  game.scene->spaceship.transform = Transform{
-    .position = glm::vec3(-0.45f * kAspectRatio, 0.0f, -0.2f),
-    .scale = glm::vec3(0.3f),
-    .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
-  };
-
-  game.scene->ligher.transform = Transform{
-    .position = glm::vec3(0.0f * kAspectRatio, -0.7f, -0.5f),
-    .scale = glm::vec3(0.1f),
-    .rotation = glm::quat(1.0f, glm::vec3(0.0f)),
-  };
-
-  game.scene->ligher.motion = Motion{
-    .velocity = glm::vec3(0.0f),
-    .acceleration = glm::vec3(0.0f),
-  };
-
-  auto fps_transform = Transform::identity();
-  fps_transform.position = glm::vec3(-0.99f * kAspectRatio, -0.99f, -0.99f);
-  fps_transform.scale = glm::vec3(0.0033f);
-  fps_transform.scale.y = -fps_transform.scale.y;
-  game.scene->fps.transform = std::move(fps_transform);
-
-  DEBUG("Loading Background Texture");
-  game.scene->background.texture = load_rgba_texture("background01.png");
-  ASSERT(game.scene->background.texture);
-  DEBUG("Loading Background Quad");
-  game.scene->background.glo = create_textured_quad_globject(game.shaders->generic_shader);
-
-  DEBUG("Loading Colored Quad");
-  game.scene->colored_quad.glo = create_colored_quad_globject(game.shaders->generic_shader);
-
-  DEBUG("Loading Spaceship Texture");
-  game.scene->spaceship.texture = load_rgba_texture("spaceship.png");
-  ASSERT(game.scene->spaceship.texture);
-  DEBUG("Loading Spaceship Quad");
-  game.scene->spaceship.glo = create_textured_quad_globject(game.shaders->generic_shader);
-
-  DEBUG("Loading Ligher Texture");
-  game.scene->ligher.texture = load_rgba_texture("ligher.png");
-  ASSERT(game.scene->ligher.texture);
-  DEBUG("Loading Ligher Vertices");
-  auto [ligher_vertices, ligher_indices] = gen_sprite_quads(4);
-  game.scene->ligher.glo = create_textured_globject(game.shaders->generic_shader, ligher_vertices, ligher_indices);
-  DEBUG("Loading Ligher Sprite Animation");
-  game.scene->ligher.animation = SpriteAnimation{
-    .last_transit_dt = 0,
-    .curr_frame_idx = 0,
-    .frames = std::initializer_list<SpriteFrame>{
-      { .duration = 0.1, .ebo_offset = 0, .ebo_count = 6 },
-      { .duration = 0.1, .ebo_offset = 6, .ebo_count = 6 },
-      { .duration = 0.1, .ebo_offset = 12, .ebo_count = 6 },
-      { .duration = 0.1, .ebo_offset = 18, .ebo_count = 6 },
-    },
-  };
-
-  DEBUG("Loading FPS Text");
-  auto [fps_vertices, fps_indices] = gen_text_quads(game.fonts->russo_one, "FPS 00 ms 00.000");
-  game.scene->fps.glo = create_text_globject(game.shaders->generic_shader, fps_vertices, fps_indices, GL_DYNAMIC_DRAW);
+  { // FPS
+    auto& fps = game.fps;
+    fps.transform = Transform{};
+    fps.transform.position = glm::vec2(-0.99f * kAspectRatio, -0.99f);
+    fps.transform.scale = glm::vec2(0.0024f);
+    fps.transform.scale.y = -fps.transform.scale.y;
+    DEBUG("Loading FPS Text");
+    auto [vertices, indices] = gen_text_quads(*game.fonts->russo_one, "FPS 00 ms 00.000");
+    fps.glo = create_text_globject(game.shaders->generic_shader, vertices, indices, GL_DYNAMIC_DRAW);
+    fps.text_fmt = TextFormat{
+      .font = game.fonts->russo_one,
+      .color = glm::vec4(glm::vec3(0.87f), 1.f),
+      .outline_color = glm::vec4(glm::vec3(0.f), 1.f),
+      .outline_thickness = 1.0f,
+    };
+  }
 
   return 0;
 }
@@ -998,11 +1110,25 @@ void game_pause(Game& game)
 
 void game_update(Game& game, float dt, float time)
 {
-  game.scene->colored_quad.transform.position.y = std::sin(time) * -0.4f;
-  game.scene->spaceship.transform.position.y = std::sin(time) * 0.4f;
-  game.scene->ligher.motion.velocity += game.scene->ligher.motion.acceleration * dt;
-  game.scene->ligher.transform.position += game.scene->ligher.motion.velocity * dt;
-  game.scene->ligher.animation->update_frame(dt);
+  for (auto& timed_action : game.timed_actions) {
+    timed_action.second.update(game, dt, time);
+  }
+
+  auto update = [dt, time] (GameObject& obj) {
+    // Motion system
+    obj.motion.velocity += obj.motion.acceleration * dt;
+    obj.transform.position += obj.motion.velocity * dt;
+    // Sprite Animation system
+    if (obj.animation) obj.animation->update_frame(dt);
+    // Custom Update Function system
+    if (obj.update) obj.update->fn(obj, dt, time);
+  };
+
+  for (auto* object_list : game.scene->objects.all_lists()) {
+    for (GameObject& obj : *object_list) {
+      update(obj);
+    }
+  }
 }
 
 /// Calculates the average FPS within kPeriod and update FPS GLObject data for render
@@ -1041,23 +1167,39 @@ void game_render(Game& game, float dt, float time)
   generic_shader.bind();
   set_camera(generic_shader, *game.camera);
 
-  auto& colored_quad = game.scene->colored_quad;
-  draw_colored_object(generic_shader, *colored_quad.glo, colored_quad.transform.matrix());
+  auto render = [&] (GameObject& obj) {
+    if (obj.texture) {
+      size_t ebo_offset = 0;
+      size_t ebo_count = obj.glo->num_indices;
+      if (obj.animation) {
+        SpriteFrame& frame = obj.animation->curr_frame();
+        ebo_offset = frame.ebo_offset;
+        ebo_count = frame.ebo_count;
+      }
+      draw_textured_object(generic_shader, *obj.texture->get(), *obj.glo, obj.transform.matrix(), ebo_offset, ebo_count);
+    }
+    else if (obj.text_fmt) {
+      draw_text_object(generic_shader, obj.text_fmt->font->texture, *obj.glo, obj.transform.matrix(),
+                       obj.text_fmt->color, obj.text_fmt->outline_color, obj.text_fmt->outline_thickness);
+    }
+    else {
+      draw_colored_object(generic_shader, *obj.glo, obj.transform.matrix());
+    }
+  };
 
-  auto& background = game.scene->background;
-  draw_textured_object(generic_shader, *background.texture, *background.glo, background.transform.matrix(), 0, background.glo->num_indices);
+  for (auto* object_list : game.scene->objects.all_lists()) {
+    for (auto obj = object_list->rbegin(); obj != object_list->rend(); obj++) {
+      render(*obj);
+    }
+  }
 
-  auto& spaceship = game.scene->spaceship;
-  draw_textured_object(generic_shader, *spaceship.texture, *spaceship.glo, spaceship.transform.matrix(), 0, spaceship.glo->num_indices);
-
-  auto& ligher = game.scene->ligher;
-  SpriteFrame& ligher_frame = ligher.animation->frames[ligher.animation->curr_frame_idx];
-  draw_textured_object(generic_shader, *ligher.texture, *ligher.glo, ligher.transform.matrix(), ligher_frame.ebo_offset, ligher_frame.ebo_count);
-
-  auto& fps = game.scene->fps;
-  update_fps(generic_shader, *fps.glo, game.fonts->russo_one, dt);
-  draw_text_object(generic_shader, game.fonts->russo_one.texture, *fps.glo, fps.transform.matrix(), glm::vec4(glm::vec3(0.87f), 1.f), glm::vec4(glm::vec3(0.f), 1.f), 1.0f);
+  auto& fps = game.fps;
+  update_fps(generic_shader, *fps.glo, *fps.text_fmt.font, dt);
+  draw_text_object(generic_shader, fps.text_fmt.font->texture, *fps.glo, fps.transform.matrix(),
+                   fps.text_fmt.color, fps.text_fmt.outline_color, fps.text_fmt.outline_thickness);
 }
+
+void init_key_handlers(KeyHandlerMap& key_handlers);
 
 int game_loop(GLFWwindow* window)
 {
@@ -1087,8 +1229,8 @@ void key_left_right_handler(struct Game& game, int key, int action, int mods)
   ASSERT(key == GLFW_KEY_LEFT || key == GLFW_KEY_RIGHT);
   const float direction = (key == GLFW_KEY_LEFT ? -1.f : +1.f);
   if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-    game.scene->ligher.motion.velocity.x = 0.5f * direction;
-    game.scene->ligher.motion.acceleration.x = 1.8f * direction;
+    game.scene->player().motion.velocity.x = 0.5f * direction;
+    game.scene->player().motion.acceleration.x = 1.8f * direction;
   }
   else if (action == GLFW_RELEASE) {
     const int other_key = (key == GLFW_KEY_LEFT) ? GLFW_KEY_RIGHT : GLFW_KEY_LEFT;
@@ -1097,8 +1239,8 @@ void key_left_right_handler(struct Game& game, int key, int action, int mods)
       game.key_handlers.value()[other_key](game, other_key, GLFW_REPEAT, mods);
     } else {
       // both arrow keys release, cease movement
-      game.scene->ligher.motion.velocity.x = 0.0f;
-      game.scene->ligher.motion.acceleration.x = 0.0f;
+      game.scene->player().motion.velocity.x = 0.0f;
+      game.scene->player().motion.acceleration.x = 0.0f;
     }
   }
 }
@@ -1108,8 +1250,8 @@ void key_up_down_handler(struct Game& game, int key, int action, int mods)
   ASSERT(key == GLFW_KEY_UP || key == GLFW_KEY_DOWN);
   const float direction = (key == GLFW_KEY_UP ? +1.f : -1.f);
   if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-    game.scene->ligher.motion.velocity.y = 0.5f * direction;
-    game.scene->ligher.motion.acceleration.y = 1.2f * direction;
+    game.scene->player().motion.velocity.y = 0.5f * direction;
+    game.scene->player().motion.acceleration.y = 1.2f * direction;
   }
   else if (action == GLFW_RELEASE) {
     const int other_key = (key == GLFW_KEY_UP) ? GLFW_KEY_DOWN : GLFW_KEY_UP;
@@ -1118,9 +1260,38 @@ void key_up_down_handler(struct Game& game, int key, int action, int mods)
       game.key_handlers.value()[other_key](game, other_key, GLFW_REPEAT, mods);
     } else {
       // both arrow keys release, cease movement
-      game.scene->ligher.motion.velocity.y = 0.0f;
-      game.scene->ligher.motion.acceleration.y = 0.0f; 
+      game.scene->player().motion.velocity.y = 0.0f;
+      game.scene->player().motion.acceleration.y = 0.0f; 
     }
+  }
+}
+
+void key_space_handler(struct Game& game, int key, int action, int mods)
+{
+  ASSERT(key == GLFW_KEY_SPACE);
+  if (action == GLFW_PRESS) {
+    auto spawn_projectile = [] (Game& game) {
+      GameObject& player = game.scene->player();
+      GameObject projectile = create_player_projectile(game);
+      constexpr glm::vec2 offset = { 0.062f, 0.165f };
+      projectile.transform.position = player.transform.position;
+      projectile.transform.position.x -= offset.x;
+      projectile.transform.position.x += 0.005f; // sprite correction
+      projectile.transform.position.y += offset.y;
+      game.scene->objects.projectile.emplace_back(projectile);
+      projectile.transform.position = player.transform.position;
+      projectile.transform.position.x += offset.x;
+      projectile.transform.position.y += offset.y;
+      game.scene->objects.projectile.emplace_back(std::move(projectile));
+    };
+    spawn_projectile(game);
+    game.timed_actions[0] = TimedAction {
+      .tick_dt = 0,
+      .duration = 0.150f,
+      .action = [=] (Game& game, auto&&...) { spawn_projectile(game); },
+    };
+  } else if (action == GLFW_RELEASE) {
+    game.timed_actions.erase(0);
   }
 }
 
@@ -1130,6 +1301,7 @@ void init_key_handlers(KeyHandlerMap& key_handlers)
   key_handlers[GLFW_KEY_RIGHT] = key_left_right_handler;
   key_handlers[GLFW_KEY_UP] = key_up_down_handler;
   key_handlers[GLFW_KEY_DOWN] = key_up_down_handler;
+  key_handlers[GLFW_KEY_SPACE] = key_space_handler;
 }
 
 void key_event_callback(GLFWwindow* window, int key, int scancode, int action, int mods)

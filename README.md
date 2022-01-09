@@ -10,6 +10,10 @@ with the most simple yet readable code that's needed to make a cool game.
 
 Feel free to learn with the code, I am learning coding it too ;)
 
+**Status:**
+
+<img src="./screenshot.png"/>
+
 ## Build
 
 ```
@@ -48,5 +52,18 @@ cmake --build . --parallel $(nproc)
    * FPS Counter
    * Generic Shader (color-texture-font)
 - [X] Window Resizing & Camera
+- [X] GameObject, Render Order & Layers
+   * Scene GameObject Container
+   * Texture Manager
+   * Projectiles
+- [ ] Bounding Box & Collision Detection
 - [ ] Game FSM & Levels
+- [ ] Performance Improvements
+   * Fixed Update Rate
+   * Linear Interpolation
+   * Handle Key Events with fixed rate
+   * Custom Allocators
+- [ ] Windows Platform
 - [ ] Android Platform
+- [ ] OpenGL Optimization
+   * OpenGL 4.5 DSA
