@@ -260,7 +260,7 @@ auto load_generic_shader() -> GLShader
 {
   static constexpr std::string_view kShaderVert = R"(
 #version 330 core
-in vec3 aPosition;
+in vec2 aPosition;
 in vec2 aTexCoord;
 in vec4 aColor;
 out vec4 fColor;
@@ -270,7 +270,7 @@ uniform mat4 uView;
 uniform mat4 uProjection;
 void main()
 {
-  gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
+  gl_Position = uProjection * uView * uModel * vec4(aPosition, 0.0f, 1.0f);
   fTexCoord = aTexCoord;
   fColor = aColor;
 }
@@ -355,13 +355,13 @@ Shaders load_shaders()
 
 /// Vertex representation for a Colored Object
 struct ColorVertex {
-  glm::vec3 pos;
+  glm::vec2 pos;
   glm::vec4 color;
 };
 
 /// Vertex representation for a Textured Object
 struct TextureVertex {
-  glm::vec3 pos;
+  glm::vec2 pos;
   glm::vec2 texcoord;
 };
 
@@ -400,7 +400,7 @@ GLObject create_colored_globject(const GLShader& shader, gsl::span<const ColorVe
   glBindBuffer(GL_ARRAY_BUFFER, vbo);
   glBufferData(GL_ARRAY_BUFFER, vertices.size_bytes(), vertices.data(), usage);
   glEnableVertexAttribArray(shader.attr_loc(GLAttr::POSITION));
-  glVertexAttribPointer(shader.attr_loc(GLAttr::POSITION), 3, GL_FLOAT, GL_FALSE, sizeof(ColorVertex), (void*) offsetof(ColorVertex, pos));
+  glVertexAttribPointer(shader.attr_loc(GLAttr::POSITION), 2, GL_FLOAT, GL_FALSE, sizeof(ColorVertex), (void*) offsetof(ColorVertex, pos));
   glEnableVertexAttribArray(shader.attr_loc(GLAttr::COLOR));
   glVertexAttribPointer(shader.attr_loc(GLAttr::COLOR), 4, GL_FLOAT, GL_FALSE, sizeof(ColorVertex), (void*) offsetof(ColorVertex, color));
   glDisableVertexAttribArray(shader.attr_loc(GLAttr::TEXCOORD));
@@ -420,7 +420,7 @@ GLObject create_textured_globject(const GLShader& shader, gsl::span<const Textur
   glBindBuffer(GL_ARRAY_BUFFER, vbo);
   glBufferData(GL_ARRAY_BUFFER, vertices.size_bytes(), vertices.data(), usage);
   glEnableVertexAttribArray(shader.attr_loc(GLAttr::POSITION));
-  glVertexAttribPointer(shader.attr_loc(GLAttr::POSITION), 3, GL_FLOAT, GL_FALSE, sizeof(TextureVertex), (void*) offsetof(TextureVertex, pos));
+  glVertexAttribPointer(shader.attr_loc(GLAttr::POSITION), 2, GL_FLOAT, GL_FALSE, sizeof(TextureVertex), (void*) offsetof(TextureVertex, pos));
   glEnableVertexAttribArray(shader.attr_loc(GLAttr::TEXCOORD));
   glVertexAttribPointer(shader.attr_loc(GLAttr::TEXCOORD), 2, GL_FLOAT, GL_FALSE, sizeof(TextureVertex), (void*) offsetof(TextureVertex, texcoord));
   glDisableVertexAttribArray(shader.attr_loc(GLAttr::COLOR));
@@ -444,17 +444,17 @@ GLObject create_textured_globject(const GLShader& shader, gsl::span<const Textur
 // positive Z goes through screen towards you
 
 static constexpr ColorVertex kColorQuadVertices[] = {
-  { .pos = { +1.0f, +1.0f, +0.0f }, .color = { 0.0f, 0.0f, 1.0f, 1.0f } },
-  { .pos = { +1.0f, -1.0f, +0.0f }, .color = { 0.0f, 1.0f, 0.0f, 1.0f } },
-  { .pos = { -1.0f, -1.0f, +0.0f }, .color = { 1.0f, 0.0f, 0.0f, 1.0f } },
-  { .pos = { -1.0f, +1.0f, +0.0f }, .color = { 1.0f, 0.0f, 1.0f, 1.0f } },
+  { .pos = { +1.0f, +1.0f }, .color = { 0.0f, 0.0f, 1.0f, 1.0f } },
+  { .pos = { +1.0f, -1.0f }, .color = { 0.0f, 1.0f, 0.0f, 1.0f } },
+  { .pos = { -1.0f, -1.0f }, .color = { 1.0f, 0.0f, 0.0f, 1.0f } },
+  { .pos = { -1.0f, +1.0f }, .color = { 1.0f, 0.0f, 1.0f, 1.0f } },
 };
 
 static constexpr TextureVertex kTextureQuadVertices[] = {
-  { .pos = { +1.0f, +1.0f, +0.0f }, .texcoord = { 1.0f, 1.0f } },
-  { .pos = { +1.0f, -1.0f, +0.0f }, .texcoord = { 1.0f, 0.0f } },
-  { .pos = { -1.0f, -1.0f, +0.0f }, .texcoord = { 0.0f, 0.0f } },
-  { .pos = { -1.0f, +1.0f, +0.0f }, .texcoord = { 0.0f, 1.0f } },
+  { .pos = { +1.0f, +1.0f }, .texcoord = { 1.0f, 1.0f } },
+  { .pos = { +1.0f, -1.0f }, .texcoord = { 1.0f, 0.0f } },
+  { .pos = { -1.0f, -1.0f }, .texcoord = { 0.0f, 0.0f } },
+  { .pos = { -1.0f, +1.0f }, .texcoord = { 0.0f, 1.0f } },
 };
 
 static constexpr GLushort kQuadIndices[] = {
@@ -492,10 +492,10 @@ auto gen_sprite_quads(size_t count) -> std::tuple<std::vector<TextureVertex>, st
   vertices.reserve(4 * count);
   indices.reserve(6 * count);
   for (size_t i = 0; i < count; i++) {
-    vertices.emplace_back(TextureVertex{ .pos = { +1.0f, +1.0f, +0.0f }, .texcoord = { (i+1)*width, 1.0f } });
-    vertices.emplace_back(TextureVertex{ .pos = { +1.0f, -1.0f, +0.0f }, .texcoord = { (i+1)*width, 0.0f } });
-    vertices.emplace_back(TextureVertex{ .pos = { -1.0f, -1.0f, +0.0f }, .texcoord = { (i+0)*width, 0.0f } });
-    vertices.emplace_back(TextureVertex{ .pos = { -1.0f, +1.0f, +0.0f }, .texcoord = { (i+0)*width, 1.0f } });
+    vertices.emplace_back(TextureVertex{ .pos = { +1.0f, +1.0f }, .texcoord = { (i+1)*width, 1.0f } });
+    vertices.emplace_back(TextureVertex{ .pos = { +1.0f, -1.0f }, .texcoord = { (i+1)*width, 0.0f } });
+    vertices.emplace_back(TextureVertex{ .pos = { -1.0f, -1.0f }, .texcoord = { (i+0)*width, 0.0f } });
+    vertices.emplace_back(TextureVertex{ .pos = { -1.0f, +1.0f }, .texcoord = { (i+0)*width, 1.0f } });
     for (auto v : kQuadIndices)
       indices.emplace_back(4*i+v);
   }
@@ -512,8 +512,10 @@ struct SpriteFrame {
 /// Control data required for a single Sprite Animation object
 struct SpriteAnimation {
   float last_transit_dt; // deltatime between last transition and now
-  size_t curr_frame_idx;   // current frame index
+  size_t curr_frame_idx; // current frame index
   std::vector<SpriteFrame> frames;
+  size_t curr_cycle_count; // number of cycles executed
+  size_t max_cycles; // max number of cycles to execute before ending sprite animation, zero for endless
 
   /// Transition frames
   void update_frame(float dt) {
@@ -521,12 +523,18 @@ struct SpriteAnimation {
     SpriteFrame& curr_frame = frames[curr_frame_idx];
     if (last_transit_dt >= curr_frame.duration) {
       last_transit_dt -= curr_frame.duration;
-      if (++curr_frame_idx == frames.size()) curr_frame_idx = 0;
+      if (++curr_frame_idx == frames.size()) {
+        curr_frame_idx = 0;
+        curr_cycle_count++;
+      }
     }
   }
 
   /// Get current sprite frame
   SpriteFrame& curr_frame() { return frames[curr_frame_idx]; }
+
+  /// Check if animation already ran to maximum number of cycles
+  bool expired() { return max_cycles > 0 && curr_cycle_count >= max_cycles; }
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -703,10 +711,10 @@ auto gen_text_quads(const GLFont& font, std::string_view text) -> std::tuple<std
       continue;
     stbtt_aligned_quad q;
     stbtt_GetPackedQuad(font.chars.data(), font.bitmap_px_width, font.bitmap_px_height, (int)ch - font.char_beg, &x, &y, &q, 1);
-    vertices.emplace_back(TextureVertex{ .pos = { q.x0, q.y0, 0.f }, .texcoord = { q.s0, q.t0 } });
-    vertices.emplace_back(TextureVertex{ .pos = { q.x1, q.y0, 0.f }, .texcoord = { q.s1, q.t0 } });
-    vertices.emplace_back(TextureVertex{ .pos = { q.x1, q.y1, 0.f }, .texcoord = { q.s1, q.t1 } });
-    vertices.emplace_back(TextureVertex{ .pos = { q.x0, q.y1, 0.f }, .texcoord = { q.s0, q.t1 } });
+    vertices.emplace_back(TextureVertex{ .pos = { q.x0, q.y0 }, .texcoord = { q.s0, q.t0 } });
+    vertices.emplace_back(TextureVertex{ .pos = { q.x1, q.y0 }, .texcoord = { q.s1, q.t0 } });
+    vertices.emplace_back(TextureVertex{ .pos = { q.x1, q.y1 }, .texcoord = { q.s1, q.t1 } });
+    vertices.emplace_back(TextureVertex{ .pos = { q.x0, q.y1 }, .texcoord = { q.s0, q.t1 } });
     for (auto v : kQuadIndices)
       indices.emplace_back(4*i+v);
     i++;
@@ -785,7 +793,7 @@ void draw_colored_object(const GLShader& shader, const GLObject& glo, const glm:
 
 /// Render a textured GLObject with indices
 void draw_textured_object(const GLShader& shader, const GLTexture& texture, const GLObject& glo,
-                          const glm::mat4& model, size_t ebo_offset, size_t ebo_count)
+                          const glm::mat4& model, const SpriteFrame* sprite = nullptr)
 {
   if (shader.unif_loc(GLUnif::SUBROUTINE) != -1)
     glUniform1i(shader.unif_loc(GLUnif::SUBROUTINE), static_cast<int>(GLSub::TEXTURE));
@@ -793,6 +801,8 @@ void draw_textured_object(const GLShader& shader, const GLTexture& texture, cons
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, texture.id);
   glBindVertexArray(glo.vao);
+  size_t ebo_offset = sprite ? sprite->ebo_offset : 0;
+  size_t ebo_count = sprite ? sprite->ebo_count : glo.num_indices;
   glDrawElements(GL_TRIANGLES, ebo_count, GL_UNSIGNED_SHORT, (const void*)ebo_offset);
 }
 
@@ -828,6 +838,35 @@ using KeyHandler = std::function<void(struct Game&, int key, int action, int mod
 using KeyHandlerMap = std::unordered_map<Key, KeyHandler>;
 /// Map key to its state, pressed = true, released = false
 using KeyStateMap = std::unordered_map<Key, bool>;
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// Collision
+
+/// Axis-aligned Bounding Box component
+/// in respect to the object's local space
+/// (no rotation support)
+///     +---+ max
+///     | x |
+/// min +---+    x = center = origin = transform.position
+struct Aabb {
+  glm::vec2 min {-1.0f};
+  glm::vec2 max {+1.0f};
+
+  Aabb transform(const glm::mat4& matrix) const {
+    glm::vec2 a = matrix * glm::vec4(min, 0.0f, 1.0f);
+    glm::vec2 b = matrix * glm::vec4(max, 0.0f, 1.0f);
+    return Aabb{glm::min(a, b), glm::max(a, b)};
+  }
+};
+
+/// Check for collision between two AABBs
+bool collision(const Aabb& a, const Aabb& b)
+{
+  return a.min.x < b.max.x &&
+         a.max.x > b.min.x &&
+         a.min.y < b.max.y &&
+         a.max.y > b.min.y;
+}
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Components
@@ -886,6 +925,12 @@ struct TimedAction {
   }
 };
 
+/// Off-Screen Destroy component
+struct OffScreenDestroy { };
+
+/// Screen Bound component
+struct ScreenBound { };
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Game
 
@@ -896,9 +941,12 @@ struct GameObject {
   Motion motion;
   GLObjectRef glo;
   std::optional<GLTextureRef> texture;
-  std::optional<SpriteAnimation> animation;
+  std::optional<SpriteAnimation> sprite_animation;
   std::optional<TextFormat> text_fmt;
   std::optional<UpdateFn> update;
+  std::optional<Aabb> aabb;
+  std::optional<OffScreenDestroy> offscreen_destroy;
+  std::optional<ScreenBound> screen_bound;
 };
 
 /// Lists of all Game Objects in a Scene, divised in layers, in order of render
@@ -906,10 +954,11 @@ struct ObjectLists {
   std::vector<GameObject> background;
   std::vector<GameObject> spaceship;
   std::vector<GameObject> projectile;
+  std::vector<GameObject> explosion;
   std::vector<GameObject> gui;
   std::vector<GameObject> text;
   /// Get all layers of objects
-  auto all_lists() { return std::array{ &background, &spaceship, &projectile, &gui, &text }; }
+  auto all_lists() { return std::array{ &background, &spaceship, &projectile, &explosion, &gui, &text }; }
 };
 
 /// Generic Scene structure
@@ -930,12 +979,51 @@ struct Game {
   std::optional<KeyHandlerMap> key_handlers;
   std::optional<KeyStateMap> key_states;
   std::unordered_map<int, TimedAction> timed_actions;
+  Aabb screen_aabb;
+  struct {
+    bool debug_info = true;
+    bool aabbs = false;
+  } render_opts;
   struct {
     Transform transform;
     TextFormat text_fmt;
     std::optional<GLObject> glo;
-  } fps;
+  } fps, obj_counter;
 };
+
+/// Create a projectile hit explosion object
+GameObject create_explosion(Game& game)
+{
+  GameObject obj;
+  obj.tag = Tag{"explosion"};
+  obj.transform = Transform{
+    .position = glm::vec2(0.0f),
+    .scale = glm::vec2(0.1f),
+    .rotation = 0.0f
+  };
+  obj.motion = Motion{
+    .velocity = glm::vec2(0.0f),
+    .acceleration = glm::vec2(0.0f),
+  };
+  obj.texture = ASSERT_OPT(game.textures->get_or_load("Explosion.png", GL_LINEAR));
+  auto [vertices, indices] = gen_sprite_quads(6);
+  obj.glo = std::make_shared<GLObject>(create_textured_globject(game.shaders->generic_shader, vertices, indices));
+  obj.sprite_animation = SpriteAnimation{
+    .last_transit_dt = 0,
+    .curr_frame_idx = 0,
+    .frames = std::vector<SpriteFrame>{
+      { .duration = 0.04f, .ebo_offset = 00, .ebo_count = 6 },
+      { .duration = 0.04f, .ebo_offset = 12, .ebo_count = 6 },
+      { .duration = 0.04f, .ebo_offset = 24, .ebo_count = 6 },
+      { .duration = 0.04f, .ebo_offset = 36, .ebo_count = 6 },
+      { .duration = 0.04f, .ebo_offset = 48, .ebo_count = 6 },
+      { .duration = 0.06f, .ebo_offset = 60, .ebo_count = 6 },
+    },
+    .curr_cycle_count = 0,
+    .max_cycles = 1,
+  };
+  return obj;
+}
 
 /// Create a player spaceship fired projectile object
 GameObject create_player_projectile(Game& game)
@@ -953,6 +1041,8 @@ GameObject create_player_projectile(Game& game)
   };
   obj.texture = ASSERT_OPT(game.textures->get_or_load("Projectile01.png", GL_LINEAR));
   obj.glo = std::make_shared<GLObject>(create_textured_quad_globject(game.shaders->generic_shader));
+  obj.aabb = Aabb{ .min= {-0.11f, -0.38f}, .max = {+0.07f, +0.30f} };
+  obj.offscreen_destroy = OffScreenDestroy{};
   return obj;
 }
 
@@ -968,6 +1058,7 @@ int game_init(Game& game, GLFWwindow* window)
   game.textures = Textures{};
   game.key_handlers = KeyHandlerMap(GLFW_KEY_LAST); // reserve all keys to avoid rehash
   game.key_states = KeyStateMap(GLFW_KEY_LAST);     // reserve all keys to avoid rehash
+  game.screen_aabb = Aabb{ .min = {-kAspectRatio, -1.0f}, .max = {kAspectRatio, +1.0f} };
 
   { // Background
     game.scene->objects.background.push_back({});
@@ -1013,16 +1104,20 @@ int game_init(Game& game, GLFWwindow* window)
     auto [vertices, indices] = gen_sprite_quads(4);
     player.glo = std::make_shared<GLObject>(create_textured_globject(game.shaders->generic_shader, vertices, indices));
     DEBUG("Loading Player Spaceship Sprite Animation");
-    player.animation = SpriteAnimation{
+    player.sprite_animation = SpriteAnimation{
       .last_transit_dt = 0,
       .curr_frame_idx = 0,
-      .frames = std::initializer_list<SpriteFrame>{
-        { .duration = 0.1, .ebo_offset = 0, .ebo_count = 6 },
-        { .duration = 0.1, .ebo_offset = 6, .ebo_count = 6 },
-        { .duration = 0.1, .ebo_offset = 12, .ebo_count = 6 },
-        { .duration = 0.1, .ebo_offset = 18, .ebo_count = 6 },
+      .frames = std::vector<SpriteFrame>{
+        { .duration = 0.15, .ebo_offset = 00, .ebo_count = 6 },
+        { .duration = 0.15, .ebo_offset = 12, .ebo_count = 6 },
+        { .duration = 0.15, .ebo_offset = 24, .ebo_count = 6 },
+        { .duration = 0.15, .ebo_offset = 36, .ebo_count = 6 },
       },
+      .curr_cycle_count = 0,
+      .max_cycles = 0,
     };
+    player.aabb = Aabb{ .min = {-0.80f, -0.70f}, .max = {0.82f, 0.70f} };
+    player.screen_bound = ScreenBound{};
   }
 
   { // Enemy
@@ -1044,19 +1139,22 @@ int game_init(Game& game, GLFWwindow* window)
     auto [vertices, indices] = gen_sprite_quads(4);
     enemy.glo = std::make_shared<GLObject>(create_textured_globject(game.shaders->generic_shader, vertices, indices));
     DEBUG("Loading Enemy Spaceship Sprite Animation");
-    enemy.animation = SpriteAnimation{
+    enemy.sprite_animation = SpriteAnimation{
       .last_transit_dt = 0,
       .curr_frame_idx = 0,
-      .frames = std::initializer_list<SpriteFrame>{
-        { .duration = 0.1, .ebo_offset = 0, .ebo_count = 6 },
-        { .duration = 0.1, .ebo_offset = 6, .ebo_count = 6 },
-        { .duration = 0.1, .ebo_offset = 12, .ebo_count = 6 },
-        { .duration = 0.1, .ebo_offset = 18, .ebo_count = 6 },
+      .frames = std::vector<SpriteFrame>{
+        { .duration = 0.15, .ebo_offset = 00, .ebo_count = 6 },
+        { .duration = 0.15, .ebo_offset = 12, .ebo_count = 6 },
+        { .duration = 0.15, .ebo_offset = 24, .ebo_count = 6 },
+        { .duration = 0.15, .ebo_offset = 36, .ebo_count = 6 },
       },
+      .curr_cycle_count = 0,
+      .max_cycles = 0,
     };
     enemy.update = UpdateFn{ [] (struct GameObject& obj, float dt, float time) {
       obj.transform.position.x = std::sin(time) * 0.4f;
     }};
+    enemy.aabb = Aabb{ .min = {-0.70f, -0.70f}, .max = {0.70f, 0.50f} };
   };
 
   { // FPS
@@ -1069,6 +1167,23 @@ int game_init(Game& game, GLFWwindow* window)
     auto [vertices, indices] = gen_text_quads(*game.fonts->russo_one, "FPS 00 ms 00.000");
     fps.glo = create_text_globject(game.shaders->generic_shader, vertices, indices, GL_DYNAMIC_DRAW);
     fps.text_fmt = TextFormat{
+      .font = game.fonts->russo_one,
+      .color = glm::vec4(glm::vec3(0.87f), 1.f),
+      .outline_color = glm::vec4(glm::vec3(0.f), 1.f),
+      .outline_thickness = 1.0f,
+    };
+  }
+
+  { // OBJ Counter
+    auto& obj = game.obj_counter;
+    obj.transform = Transform{};
+    obj.transform.position = glm::vec2(0.68f * kAspectRatio, -0.99f);
+    obj.transform.scale = glm::vec2(0.0024f);
+    obj.transform.scale.y = -obj.transform.scale.y;
+    DEBUG("Loading OBJ Counter Text");
+    auto [vertices, indices] = gen_text_quads(*game.fonts->russo_one, "OBJ 000");
+    obj.glo = create_text_globject(game.shaders->generic_shader, vertices, indices, GL_DYNAMIC_DRAW);
+    obj.text_fmt = TextFormat{
       .font = game.fonts->russo_one,
       .color = glm::vec4(glm::vec3(0.87f), 1.f),
       .outline_color = glm::vec4(glm::vec3(0.f), 1.f),
@@ -1110,23 +1225,64 @@ void game_pause(Game& game)
 
 void game_update(Game& game, float dt, float time)
 {
+  // Update TimedAction's
   for (auto& timed_action : game.timed_actions) {
     timed_action.second.update(game, dt, time);
   }
 
-  auto update = [dt, time] (GameObject& obj) {
-    // Motion system
-    obj.motion.velocity += obj.motion.acceleration * dt;
-    obj.transform.position += obj.motion.velocity * dt;
-    // Sprite Animation system
-    if (obj.animation) obj.animation->update_frame(dt);
-    // Custom Update Function system
-    if (obj.update) obj.update->fn(obj, dt, time);
-  };
-
+  // Update all objects
   for (auto* object_list : game.scene->objects.all_lists()) {
-    for (GameObject& obj : *object_list) {
-      update(obj);
+    for (auto&& obj = object_list->begin(); obj != object_list->end();) {
+      // Motion system
+      obj->motion.velocity += obj->motion.acceleration * dt;
+      obj->transform.position += obj->motion.velocity * dt;
+      // Sprite Animation system
+      if (obj->sprite_animation) {
+        obj->sprite_animation->update_frame(dt);
+        if (obj->sprite_animation->expired()) {
+          obj = object_list->erase(obj);
+          continue;
+        }
+      }
+      // Custom Update Function system
+      if (obj->update) obj->update->fn(*obj, dt, time);
+      // Off-Screen Destroy system
+      if (obj->offscreen_destroy) {
+        Aabb obj_aabb = obj->aabb->transform(obj->transform.matrix());
+        if (!collision(obj_aabb, game.screen_aabb)) {
+          obj = object_list->erase(obj);
+          continue;
+        }
+      }
+      // Screen Bound system
+      if (obj->screen_bound) {
+        glm::vec2& pos = obj->transform.position;
+        if (pos.x < game.screen_aabb.min.x) pos.x = game.screen_aabb.min.x;
+        if (pos.y < game.screen_aabb.min.y) pos.y = game.screen_aabb.min.y;
+        if (pos.x > game.screen_aabb.max.x) pos.x = game.screen_aabb.max.x;
+        if (pos.y > game.screen_aabb.max.y) pos.y = game.screen_aabb.max.y;
+      }
+      // Loop continue
+      obj++;
+    }
+  }
+
+  // Projectile<->Spaceship Collision system
+  auto& spaceships = game.scene->objects.spaceship;
+  auto&& spaceship = spaceships.begin();
+  for (spaceship++ /* skip player */; spaceship != spaceships.end(); spaceship++) {
+    auto& projectiles = game.scene->objects.projectile;
+    for (auto&& projectile = projectiles.begin(); projectile != projectiles.end();) {
+      Aabb projectile_aabb = projectile->aabb->transform(projectile->transform.matrix());
+      Aabb spaceship_aabb = spaceship->aabb->transform(spaceship->transform.matrix());
+      if (collision(projectile_aabb, spaceship_aabb)) {
+        GameObject explosion = create_explosion(game);
+        explosion.transform.position = projectile->transform.position;
+        game.scene->objects.explosion.emplace_back(std::move(explosion));
+        projectile = projectiles.erase(projectile);
+      } else {
+        projectile++;
+      }
     }
   }
 }
@@ -1159,6 +1315,46 @@ void update_fps(const GLShader& shader, GLObject& glo, const GLFont& font, float
   }
 }
 
+/// Compute number of objects being rendered and update OBJ Counter GLObject for render
+void update_obj_counter(Game& game, const GLShader& shader, GLObject& glo, const GLFont& font)
+{
+  static size_t last_obj_counter = 0;
+  size_t obj_counter = 0;
+  for (auto* object_list : game.scene->objects.all_lists())
+    obj_counter += object_list->size();
+  if (obj_counter != last_obj_counter) {
+    last_obj_counter = obj_counter;
+    char obj_cbuf[30];
+    std::snprintf(obj_cbuf, sizeof(obj_cbuf), "OBJ %03zu", obj_counter);
+    update_text_globject(shader, glo, font, obj_cbuf, GL_DYNAMIC_DRAW);
+  }
+}
+
+/// Render AABBs for all objects that have it
+void render_aabbs(Game& game, GLShader& generic_shader)
+{
+  glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+  auto bbox_glo = create_colored_globject(generic_shader, kColorQuadVertices, kQuadIndices, GL_STREAM_DRAW);
+  for (auto* object_list : game.scene->objects.all_lists()) {
+    for (auto obj = object_list->rbegin(); obj != object_list->rend(); obj++) {
+      if (obj->aabb) {
+        Aabb& aabb = *obj->aabb;
+        auto vertices = std::vector<ColorVertex>{
+          { .pos = { aabb.max.x, aabb.max.y }, .color = { 1.0f, 1.0f, 0.0f, 1.0f } },
+          { .pos = { aabb.max.x, aabb.min.y }, .color = { 1.0f, 1.0f, 0.0f, 1.0f } },
+          { .pos = { aabb.min.x, aabb.min.y }, .color = { 1.0f, 1.0f, 0.0f, 1.0f } },
+          { .pos = { aabb.min.x, aabb.max.y }, .color = { 1.0f, 1.0f, 0.0f, 1.0f } },
+        };
+        glBindVertexArray(bbox_glo.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, bbox_glo.vbo);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, vertices.size() * sizeof(ColorVertex), vertices.data());
+        draw_colored_object(generic_shader, bbox_glo, obj->transform.matrix());
+      }
+    }
+  }
+  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
 void game_render(Game& game, float dt, float time)
 {
   begin_render();
@@ -1167,36 +1363,43 @@ void game_render(Game& game, float dt, float time)
   generic_shader.bind();
   set_camera(generic_shader, *game.camera);
 
-  auto render = [&] (GameObject& obj) {
-    if (obj.texture) {
-      size_t ebo_offset = 0;
-      size_t ebo_count = obj.glo->num_indices;
-      if (obj.animation) {
-        SpriteFrame& frame = obj.animation->curr_frame();
-        ebo_offset = frame.ebo_offset;
-        ebo_count = frame.ebo_count;
-      }
-      draw_textured_object(generic_shader, *obj.texture->get(), *obj.glo, obj.transform.matrix(), ebo_offset, ebo_count);
-    }
-    else if (obj.text_fmt) {
-      draw_text_object(generic_shader, obj.text_fmt->font->texture, *obj.glo, obj.transform.matrix(),
-                       obj.text_fmt->color, obj.text_fmt->outline_color, obj.text_fmt->outline_thickness);
-    }
-    else {
-      draw_colored_object(generic_shader, *obj.glo, obj.transform.matrix());
-    }
-  };
-
+  // Render all objects
   for (auto* object_list : game.scene->objects.all_lists()) {
     for (auto obj = object_list->rbegin(); obj != object_list->rend(); obj++) {
-      render(*obj);
+      if (obj->texture) {
+        if (obj->sprite_animation) {
+          SpriteFrame& frame = obj->sprite_animation->curr_frame();
+          draw_textured_object(generic_shader, *obj->texture->get(), *obj->glo, obj->transform.matrix(), &frame);
+        } else {
+          draw_textured_object(generic_shader, *obj->texture->get(), *obj->glo, obj->transform.matrix());
+        }
+      }
+      else if (obj->text_fmt) {
+        draw_text_object(generic_shader, obj->text_fmt->font->texture, *obj->glo, obj->transform.matrix(),
+                         obj->text_fmt->color, obj->text_fmt->outline_color, obj->text_fmt->outline_thickness);
+      }
+      else {
+        draw_colored_object(generic_shader, *obj->glo, obj->transform.matrix());
+      }
     }
   }
 
-  auto& fps = game.fps;
-  update_fps(generic_shader, *fps.glo, *fps.text_fmt.font, dt);
-  draw_text_object(generic_shader, fps.text_fmt.font->texture, *fps.glo, fps.transform.matrix(),
-                   fps.text_fmt.color, fps.text_fmt.outline_color, fps.text_fmt.outline_thickness);
+  // Render AABBs
+  if (game.render_opts.aabbs)
+    render_aabbs(game, generic_shader);
+
+  // Render Debug Info
+  if (game.render_opts.debug_info) {
+    auto& fps = game.fps;
+    update_fps(generic_shader, *fps.glo, *fps.text_fmt.font, dt);
+    draw_text_object(generic_shader, fps.text_fmt.font->texture, *fps.glo, fps.transform.matrix(),
+                     fps.text_fmt.color, fps.text_fmt.outline_color, fps.text_fmt.outline_thickness);
+
+    auto& objc = game.obj_counter;
+    update_obj_counter(game, generic_shader, *objc.glo, *objc.text_fmt.font);
+    draw_text_object(generic_shader, objc.text_fmt.font->texture, *objc.glo, objc.transform.matrix(),
+                     objc.text_fmt.color, objc.text_fmt.outline_color, objc.text_fmt.outline_thickness);
+  }
 }
 
 void init_key_handlers(KeyHandlerMap& key_handlers);
@@ -1273,7 +1476,7 @@ void key_space_handler(struct Game& game, int key, int action, int mods)
     auto spawn_projectile = [] (Game& game) {
       GameObject& player = game.scene->player();
       GameObject projectile = create_player_projectile(game);
-      constexpr glm::vec2 offset = { 0.062f, 0.165f };
+      constexpr glm::vec2 offset = { 0.062f, 0.125f };
       projectile.transform.position = player.transform.position;
       projectile.transform.position.x -= offset.x;
       projectile.transform.position.x += 0.005f; // sprite correction
@@ -1295,6 +1498,18 @@ void key_space_handler(struct Game& game, int key, int action, int mods)
   }
 }
 
+void key_f3_handler(struct Game& game, int key, int action, int mods)
+{
+  if (action == GLFW_PRESS)
+    game.render_opts.debug_info = !game.render_opts.debug_info;
+}
+
+void key_f7_handler(struct Game& game, int key, int action, int mods)
+{
+  if (action == GLFW_PRESS)
+    game.render_opts.aabbs = !game.render_opts.aabbs;
+}
+
 void init_key_handlers(KeyHandlerMap& key_handlers)
 {
   key_handlers[GLFW_KEY_LEFT] = key_left_right_handler;
@@ -1302,6 +1517,8 @@ void init_key_handlers(KeyHandlerMap& key_handlers)
   key_handlers[GLFW_KEY_UP] = key_up_down_handler;
   key_handlers[GLFW_KEY_DOWN] = key_up_down_handler;
   key_handlers[GLFW_KEY_SPACE] = key_space_handler;
+  key_handlers[GLFW_KEY_F3] = key_f3_handler;
+  key_handlers[GLFW_KEY_F7] = key_f7_handler;
 }
 
 void key_event_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -1314,14 +1531,6 @@ void key_event_callback(GLFWwindow* window, int key, int scancode, int action, i
 
   TRACE("Event key: {} action: {} mods: {}", key, action, mods);
 
-  // Handle Super key (special case)
-  if (key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER) {
-    if (action == GLFW_PRESS) game_pause(*game);
-    else if (action == GLFW_RELEASE) game_resume(*game);
-    return;
-  }
-
-  // Handle registered keys
   auto it = game->key_handlers->find(key);
   if (it != game->key_handlers->end()) {
     auto& handler = it->second;
@@ -1383,7 +1592,7 @@ int create_window(GLFWwindow*& window)
 
   // settings
   glfwSetWindowAspectRatio(window, kWidth, kHeight);
-  glfwSwapInterval(0); // vsync
+  glfwSwapInterval(1); // vsync
 
   return 0;
 }

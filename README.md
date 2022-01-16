@@ -56,14 +56,19 @@ cmake --build . --parallel $(nproc)
    * Scene GameObject Container
    * Texture Manager
    * Projectiles
-- [ ] Bounding Box & Collision Detection
-- [ ] Game FSM & Levels
+- [X] Bounding Box & Collision Detection
+   * AABB
+   * Projectile Hits & Explosions
+   * Bind player to Screen bounds
+- [ ] Audio with OpenAL
 - [ ] Performance Improvements
+   * Custom Allocators
    * Fixed Update Rate
    * Linear Interpolation
    * Handle Key Events with fixed rate
-   * Custom Allocators
+- [ ] Game FSM & Levels
 - [ ] Windows Platform
 - [ ] Android Platform
 - [ ] OpenGL Optimization
+   * Instanced Rendering
    * OpenGL 4.5 DSA
