@@ -37,6 +37,8 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 #########################################################################################
 # OpenGL for graphics library
 find_package(OpenGL REQUIRED)
+# OpenAL for audio library
+find_package(OpenAL REQUIRED CONFIG)
 # SPDLog for fast C++ logging library
 find_package(spdlog 1.9.2 EXACT REQUIRED)
 # GLFW for desktop windowing and input
@@ -45,10 +47,12 @@ find_package(glfw3 3.3.6 EXACT REQUIRED)
 find_package(glbinding REQUIRED)
 # GLM for opengl mathematics library
 find_package(glm 0.9.9.9 EXACT REQUIRED)
-# STB for image loading/decoding
+# STB for image/font loading/decoding
 find_package(stb 0.9.0 EXACT REQUIRED)
 # GSL for types and functions of C++ Core Guidelines
 find_package(Microsoft.GSL 3.1.0 EXACT REQUIRED)
+# drlibs for audio decoding library
+find_package(drlibs 0.10.0 EXACT REQUIRED)
 
 #########################################################################################
 # Project
@@ -66,11 +70,13 @@ target_link_libraries(spaceship PRIVATE
     stb::stb_image
     stb::stb_truetype
     stb::stb_rect_pack
+    drlibs::dr_wav
     Microsoft.GSL::GSL
     glfw
     glbinding::glbinding
     glbinding::glbinding-aux
     OpenGL::GL
+    OpenAL::OpenAL
 )
 target_compile_definitions(spaceship PRIVATE
     GLFW_INCLUDE_NONE

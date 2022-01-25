@@ -60,15 +60,22 @@ cmake --build . --parallel $(nproc)
    * AABB
    * Projectile Hits & Explosions
    * Bind player to Screen bounds
-- [ ] Audio with OpenAL
-- [ ] Performance Improvements
-   * Custom Allocators
+- [X] Audio with OpenAL
+   * Load WAV audio
+   * Associate with entities
+- [ ] Loop Improvements
    * Fixed Update Rate
    * Linear Interpolation
    * Handle Key Events with fixed rate
-- [ ] Game FSM & Levels
+- [ ] Game FSM & Scenes
+   * Game Start screen
+   * Game Over screen
+   * Game State FSM
+   * Enemy Logic
 - [ ] Windows Platform
-- [ ] Android Platform
-- [ ] OpenGL Optimization
+- [ ] Optimization
    * Instanced Rendering
    * OpenGL 4.5 DSA
+   * Array Textures
+   * Custom Allocators
+- [ ] Android Platform

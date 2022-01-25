@@ -120,3 +120,22 @@ ExternalProject_Add(gsl_external
         -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
         -DBUILD_SHARED_LIBS=OFF
         -DGSL_TEST=OFF)
+
+#########################################################################################
+# dr_libs
+#########################################################################################
+# Single file audio decoding libraries for C/C++.
+# dr_libs is licensed under the Public Domain license and MIT license.
+message(STATUS "Adding external library: dr_libs")
+ExternalProject_Add(drlibs_external
+    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/drlibs
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/drlibs
+    INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+        -DCMAKE_GENERATOR=${CMAKE_GENERATOR}
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+        -DBUILD_SHARED_LIBS=OFF
+        -DDR_WAV=ON)
+

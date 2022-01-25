@@ -46,4 +46,5 @@ ExternalProject_Add(spaceship
         glbinding_external
         glm_external
         stb_external
-        gsl_external)
+        gsl_external
+        drlibs_external)

@@ -13,6 +13,9 @@
 #include <glbinding-aux/debug.h>
 using namespace gl;
 
+#include <AL/al.h>
+#include <AL/alc.h>
+
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <GLFW/glfw3.h>
@@ -25,6 +28,7 @@ using namespace gl;
 #include <stb/stb_image.h>
 #include <stb/stb_rect_pack.h>
 #include <stb/stb_truetype.h>
+#include <drlibs/dr_wav.h>
 #include <gsl/span>
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -744,6 +748,113 @@ auto update_text_globject(const GLShader& shader, GLObject& glo, const GLFont& f
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// Audio
+
+/// Represents an audio buffer loaded into OpenAL
+struct ALBuffer {
+  UniqueNum<ALuint> id;
+
+  ~ALBuffer() {
+    if (id) alDeleteBuffers(1, &id.inner);
+  }
+
+  // Movable but not Copyable
+  ALBuffer(ALBuffer&&) = default;
+  ALBuffer(const ALBuffer&) = delete;
+  ALBuffer& operator=(ALBuffer&&) = default;
+  ALBuffer& operator=(const ALBuffer&) = delete;
+};
+
+/// ALBuffer reference type alias
+using ALBufferRef = std::shared_ptr<ALBuffer>;
+
+/// Read WAV audio file and load it into an OpenAL buffer
+auto load_wav_audio(const std::string& audiopath) -> std::optional<ALBuffer>
+{
+  DEBUG("Loading audio {}", audiopath);
+  const std::string filepath = SPACESHIP_ASSETS_PATH + "/audio/"s + audiopath;
+  auto audio = read_file_to_string(filepath);
+  if (!audio) { ERROR("Failed to read audio '{}'", audiopath); return std::nullopt; }
+  unsigned int channels, samples;
+  drwav_uint64 pcm_frame_count;
+  drwav_int16* data = drwav_open_memory_and_read_pcm_frames_s16(audio->data(), audio->size(), &channels, &samples, &pcm_frame_count, nullptr);
+  if (!data) { ERROR("Failed to load audio path ({})", filepath); return std::nullopt; }
+  size_t size = (pcm_frame_count * channels * sizeof(float));
+  int err;
+  ALuint abo;
+  alGenBuffers(1, &abo);
+  alBufferData(abo, AL_FORMAT_STEREO16, data, size, samples);
+  if ((err = alGetError()) != AL_NO_ERROR) {
+    ERROR("Failed to buffer audio {}, error {}", audiopath, err);
+    alDeleteBuffers(1, &abo);
+    drwav_free(data, NULL);
+    return std::nullopt;
+  } 
+  drwav_free(data, NULL);
+  return ALBuffer{ abo };
+}
+
+/// Represents the origin of an audio sound in the world position, that's the play source of an audio buffer
+struct ALSource {
+  UniqueNum<ALuint> id;
+  ALBufferRef buf;
+
+  ~ALSource() {
+    if (id) alDeleteSources(1, &id.inner);
+  }
+
+  void bind_buffer(ALBufferRef _buf) {
+    alSourcei(id, AL_BUFFER, _buf->id);
+    this->buf = std::move(_buf);
+  }
+
+  void play() { alSourcePlay(id); }
+
+  // Movable but not Copyable
+  ALSource(ALSource&&) = default;
+  ALSource(const ALSource&) = delete;
+  ALSource& operator=(ALSource&&) = default;
+  ALSource& operator=(const ALSource&) = delete;
+};
+
+/// ALSource reference type alias
+using ALSourceRef = std::shared_ptr<ALSource>;
+
+/// Create a new Audio Source object
+ALSource create_audio_source(float gain)
+{
+  ALuint aso;
+  alGenSources(1, &aso);
+  alSourcef(aso, AL_PITCH, 1.0f);
+  alSourcef(aso, AL_GAIN, gain);
+  alSource3f(aso, AL_POSITION, 0.0f, 0.0f, 0.0f);
+  alSource3f(aso, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
+  alSourcei(aso, AL_LOOPING, AL_FALSE);
+  return ALSource{ aso };
+}
+
+/// Holds the audio buffers used by the game
+struct Audios {
+  std::unordered_map<std::string, ALBufferRef> map;
+
+ public:
+  /// Get an Audio buffer from cache, or load it if not cached yet
+  template<typename ...Args>
+  auto get_or_load(const std::string& audiopath, Args&&... args) -> std::optional<ALBufferRef> {
+    auto it = map.find(audiopath);
+    if (it != map.end()) {
+      return it->second;
+    } else {
+      auto audio = load_wav_audio(audiopath, std::forward<Args>(args)...);
+      if (!audio) return std::nullopt;
+      auto audioptr = std::make_shared<ALBuffer>(std::move(*audio));
+      map.emplace(audiopath, audioptr);
+      return audioptr;
+    }
+  }
+};
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Camera
 
 struct Camera {
@@ -947,6 +1058,7 @@ struct GameObject {
   std::optional<Aabb> aabb;
   std::optional<OffScreenDestroy> offscreen_destroy;
   std::optional<ScreenBound> screen_bound;
+  std::optional<ALSourceRef> sound;
 };
 
 /// Lists of all Game Objects in a Scene, divised in layers, in order of render
@@ -975,6 +1087,7 @@ struct Game {
   std::optional<Shaders> shaders;
   std::optional<Fonts> fonts;
   std::optional<Scene> scene;
+  std::optional<Audios> audios;
   std::optional<Textures> textures;
   std::optional<KeyHandlerMap> key_handlers;
   std::optional<KeyStateMap> key_states;
@@ -1022,6 +1135,8 @@ GameObject create_explosion(Game& game)
     .curr_cycle_count = 0,
     .max_cycles = 1,
   };
+  obj.sound = std::make_shared<ALSource>(create_audio_source(1.0f));
+  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("explosionCrunch_000.wav")));
   return obj;
 }
 
@@ -1055,10 +1170,14 @@ int game_init(Game& game, GLFWwindow* window)
   game.shaders = load_shaders();
   game.fonts = load_fonts();
   game.scene = Scene{};
+  game.audios = Audios{};
   game.textures = Textures{};
   game.key_handlers = KeyHandlerMap(GLFW_KEY_LAST); // reserve all keys to avoid rehash
   game.key_states = KeyStateMap(GLFW_KEY_LAST);     // reserve all keys to avoid rehash
   game.screen_aabb = Aabb{ .min = {-kAspectRatio, -1.0f}, .max = {kAspectRatio, +1.0f} };
+
+  ASSERT(game.audios->get_or_load("laser-14729.wav"));
+  ASSERT(game.audios->get_or_load("explosionCrunch_000.wav"));
 
   { // Background
     game.scene->objects.background.push_back({});
@@ -1118,6 +1237,8 @@ int game_init(Game& game, GLFWwindow* window)
     };
     player.aabb = Aabb{ .min = {-0.80f, -0.70f}, .max = {0.82f, 0.70f} };
     player.screen_bound = ScreenBound{};
+    player.sound = std::make_shared<ALSource>(create_audio_source(0.8f));
+    player.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("laser-14729.wav")));
   }
 
   { // Enemy
@@ -1278,6 +1399,7 @@ void game_update(Game& game, float dt, float time)
       if (collision(projectile_aabb, spaceship_aabb)) {
         GameObject explosion = create_explosion(game);
         explosion.transform.position = projectile->transform.position;
+        explosion.sound->get()->play();
         game.scene->objects.explosion.emplace_back(std::move(explosion));
         projectile = projectiles.erase(projectile);
       } else {
@@ -1486,6 +1608,7 @@ void key_space_handler(struct Game& game, int key, int action, int mods)
       projectile.transform.position.x += offset.x;
       projectile.transform.position.y += offset.y;
       game.scene->objects.projectile.emplace_back(std::move(projectile));
+      game.scene->player().sound->get()->play();
     };
     spawn_projectile(game);
     game.timed_actions[0] = TimedAction {
@@ -1570,6 +1693,37 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Setup
 
+/// Initialize OpenAL
+int init_audio(ALCcontext *context)
+{
+  int err;
+  bool ok;
+  ALCdevice *device = alcOpenDevice(nullptr);
+  if (!device) {
+    CRITICAL("Failed to open default audio device");
+    return -4;
+  }
+
+  context = alcCreateContext(device, nullptr);
+  ok = alcMakeContextCurrent(context);
+  if (!ok || (err = alGetError()) != AL_NO_ERROR) {
+    CRITICAL("Failed to create OpenAL context");
+    return -4;
+  }
+
+  ALfloat orientation[] = { 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f };
+  alListener3f(AL_POSITION, 0.0f, 0.0f, 1.0f);
+  alListener3f(AL_VELOCITY, 0.0f, 0.0f, 0.0f);
+  alListenerfv(AL_ORIENTATION, orientation);
+  if ((err = alGetError()) != AL_NO_ERROR) {
+    CRITICAL("Failed to configure OpenAL Listener");
+    return -4;
+  }
+
+  return 0;
+};
+
+/// Create a window with GLFW
 int create_window(GLFWwindow*& window)
 {
   glfwInit();
@@ -1579,7 +1733,7 @@ int create_window(GLFWwindow*& window)
 
   window = glfwCreateWindow(kWidth, kHeight, "Spaceship", nullptr, nullptr);
   if (window == nullptr) {
-    std::cerr << "Failed to create GLFW window" << std::endl;
+    CRITICAL("Failed to create GLFW window");
     glfwTerminate();
     return -3;
   }
@@ -1638,12 +1792,22 @@ int main(int argc, char *argv[])
   glbinding::initialize(glfwGetProcAddress);
   glbinding::aux::enableGetErrorCallback();
 
+  // Init AL ===================================================================
+  INFO("Initializing OpenAL..");
+  ALCcontext* openal_ctx = nullptr;
+  ret = init_audio(openal_ctx);
+  if (ret) { glfwTerminate(); return ret; }
+
   // Game Loop =================================================================
   INFO("Game Loop..");
   ret = game_loop(window);
 
   // End =======================================================================
   INFO("Terminating..");
+  ALCdevice *alc_device = alcGetContextsDevice(openal_ctx);
+  alcMakeContextCurrent(NULL);
+  alcDestroyContext(openal_ctx);
+  alcCloseDevice(alc_device);
   glfwTerminate();
 
   INFO("Exit");
