@@ -25,6 +25,7 @@ using namespace gl;
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/compatibility.hpp>
 #include <stb/stb_image.h>
 #include <stb/stb_rect_pack.h>
 #include <stb/stb_truetype.h>
@@ -950,6 +951,8 @@ using KeyHandlerMap = std::unordered_map<Key, KeyHandler>;
 /// Map key to its state, pressed = true, released = false
 using KeyStateMap = std::unordered_map<Key, bool>;
 
+void init_key_handlers(KeyHandlerMap& key_handlers);
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Collision
 
@@ -1049,6 +1052,7 @@ struct ScreenBound { };
 struct GameObject {
   Tag tag;
   Transform transform;
+  Transform prev_transform;
   Motion motion;
   GLObjectRef glo;
   std::optional<GLTextureRef> texture;
@@ -1114,6 +1118,7 @@ GameObject create_explosion(Game& game)
     .scale = glm::vec2(0.1f),
     .rotation = 0.0f
   };
+  obj.prev_transform = obj.transform;
   obj.motion = Motion{
     .velocity = glm::vec2(0.0f),
     .acceleration = glm::vec2(0.0f),
@@ -1150,6 +1155,7 @@ GameObject create_player_projectile(Game& game)
     .scale = glm::vec2(0.15f),
     .rotation = 0.0f
   };
+  obj.prev_transform = obj.transform;
   obj.motion = Motion{
     .velocity = glm::vec2(0.0f, 2.6f),
     .acceleration = glm::vec2(0.0f),
@@ -1188,6 +1194,7 @@ int game_init(Game& game, GLFWwindow* window)
       .scale = glm::vec2(kAspectRatio + 0.1f, 1.1f),
       .rotation = 0.0f,
     };
+    background.prev_transform = background.transform;
     background.motion = Motion{
       .velocity = glm::vec2(0.014f, 0.004f),
       .acceleration = glm::vec2(0.0f),
@@ -1213,6 +1220,7 @@ int game_init(Game& game, GLFWwindow* window)
       .scale = glm::vec2(0.1f),
       .rotation = 0.0f,
     };
+    player.prev_transform = player.transform;
     player.motion = Motion{
       .velocity = glm::vec2(0.0f),
       .acceleration = glm::vec2(0.0f),
@@ -1250,6 +1258,7 @@ int game_init(Game& game, GLFWwindow* window)
       .scale = glm::vec2(0.08f, -0.08f),
       .rotation = 0.0f
     };
+    enemy.prev_transform = enemy.transform;
     enemy.motion = Motion{
       .velocity = glm::vec2(0.0f),
       .acceleration = glm::vec2(0.0f),
@@ -1354,6 +1363,7 @@ void game_update(Game& game, float dt, float time)
   // Update all objects
   for (auto* object_list : game.scene->objects.all_lists()) {
     for (auto&& obj = object_list->begin(); obj != object_list->end();) {
+      obj->prev_transform = obj->transform;
       // Motion system
       obj->motion.velocity += obj->motion.acceleration * dt;
       obj->transform.position += obj->motion.velocity * dt;
@@ -1399,6 +1409,7 @@ void game_update(Game& game, float dt, float time)
       if (collision(projectile_aabb, spaceship_aabb)) {
         GameObject explosion = create_explosion(game);
         explosion.transform.position = projectile->transform.position;
+        explosion.prev_transform = explosion.transform;
         explosion.sound->get()->play();
         game.scene->objects.explosion.emplace_back(std::move(explosion));
         projectile = projectiles.erase(projectile);
@@ -1477,7 +1488,7 @@ void render_aabbs(Game& game, GLShader& generic_shader)
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
-void game_render(Game& game, float dt, float time)
+void game_render(Game& game, float frame_time, float dt, float alpha)
 {
   begin_render();
 
@@ -1488,20 +1499,27 @@ void game_render(Game& game, float dt, float time)
   // Render all objects
   for (auto* object_list : game.scene->objects.all_lists()) {
     for (auto obj = object_list->rbegin(); obj != object_list->rend(); obj++) {
+      // Linear interpolation
+      auto transform = Transform{
+        .position = glm::lerp(obj->prev_transform.position, obj->transform.position, alpha),
+        .scale = glm::lerp(obj->prev_transform.scale, obj->transform.scale, alpha),
+        .rotation = glm::lerp(obj->prev_transform.rotation, obj->transform.rotation, alpha),
+      };
+      // Draw object
       if (obj->texture) {
         if (obj->sprite_animation) {
           SpriteFrame& frame = obj->sprite_animation->curr_frame();
-          draw_textured_object(generic_shader, *obj->texture->get(), *obj->glo, obj->transform.matrix(), &frame);
+          draw_textured_object(generic_shader, *obj->texture->get(), *obj->glo, transform.matrix(), &frame);
         } else {
-          draw_textured_object(generic_shader, *obj->texture->get(), *obj->glo, obj->transform.matrix());
+          draw_textured_object(generic_shader, *obj->texture->get(), *obj->glo, transform.matrix());
         }
       }
       else if (obj->text_fmt) {
-        draw_text_object(generic_shader, obj->text_fmt->font->texture, *obj->glo, obj->transform.matrix(),
+        draw_text_object(generic_shader, obj->text_fmt->font->texture, *obj->glo, transform.matrix(),
                          obj->text_fmt->color, obj->text_fmt->outline_color, obj->text_fmt->outline_thickness);
       }
       else {
-        draw_colored_object(generic_shader, *obj->glo, obj->transform.matrix());
+        draw_colored_object(generic_shader, *obj->glo, transform.matrix());
       }
     }
   }
@@ -1513,7 +1531,7 @@ void game_render(Game& game, float dt, float time)
   // Render Debug Info
   if (game.render_opts.debug_info) {
     auto& fps = game.fps;
-    update_fps(generic_shader, *fps.glo, *fps.text_fmt.font, dt);
+    update_fps(generic_shader, *fps.glo, *fps.text_fmt.font, frame_time);
     draw_text_object(generic_shader, fps.text_fmt.font->texture, *fps.glo, fps.transform.matrix(),
                      fps.text_fmt.color, fps.text_fmt.outline_color, fps.text_fmt.outline_thickness);
 
@@ -1524,8 +1542,6 @@ void game_render(Game& game, float dt, float time)
   }
 }
 
-void init_key_handlers(KeyHandlerMap& key_handlers);
-
 int game_loop(GLFWwindow* window)
 {
   Game game;
@@ -1533,16 +1549,29 @@ int game_loop(GLFWwindow* window)
   if (ret) return ret;
   init_key_handlers(*game.key_handlers);
   glfwSetWindowUserPointer(window, &game);
+
+  float epochtime = 0;
   float last_time = 0;
+  float lag = 0;
+  constexpr float timestep = 1.f / 100.f;
   while (!glfwWindowShouldClose(window)) {
-    float time = glfwGetTime();
-    float dt = time - last_time;
-    last_time = time;
-    game_update(game, dt, time);
-    game_render(game, dt, time);
+
+    float now_time = glfwGetTime();
+    float frame_time = now_time - last_time;
+    last_time = now_time;
+    lag += frame_time;
+    while (lag >= timestep) {
+      glfwPollEvents();
+      game_update(game, timestep, epochtime);
+      epochtime += timestep;
+      lag -= timestep;
+    }
+
+    float alpha = lag / timestep;
+    game_render(game, frame_time, timestep, alpha);
     glfwSwapBuffers(window);
-    glfwPollEvents();
   }
+
   return 0;
 }
 
@@ -1603,10 +1632,12 @@ void key_space_handler(struct Game& game, int key, int action, int mods)
       projectile.transform.position.x -= offset.x;
       projectile.transform.position.x += 0.005f; // sprite correction
       projectile.transform.position.y += offset.y;
+      projectile.prev_transform = projectile.transform;
       game.scene->objects.projectile.emplace_back(projectile);
       projectile.transform.position = player.transform.position;
       projectile.transform.position.x += offset.x;
       projectile.transform.position.y += offset.y;
+      projectile.prev_transform = projectile.transform;
       game.scene->objects.projectile.emplace_back(std::move(projectile));
       game.scene->player().sound->get()->play();
     };
@@ -1746,7 +1777,7 @@ int create_window(GLFWwindow*& window)
 
   // settings
   glfwSetWindowAspectRatio(window, kWidth, kHeight);
-  glfwSwapInterval(1); // vsync
+  glfwSwapInterval(0); // vsync
 
   return 0;
 }

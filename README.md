@@ -63,10 +63,10 @@ cmake --build . --parallel $(nproc)
 - [X] Audio with OpenAL
    * Load WAV audio
    * Associate with entities
-- [ ] Loop Improvements
-   * Fixed Update Rate
+- [X] Update Loop Improvements
+   * Fixed Time Step
    * Linear Interpolation
-   * Handle Key Events with fixed rate
+   * Handle Key Events at fixed rate
 - [ ] Game FSM & Scenes
    * Game Start screen
    * Game Over screen
@@ -78,4 +78,6 @@ cmake --build . --parallel $(nproc)
    * OpenGL 4.5 DSA
    * Array Textures
    * Custom Allocators
+   * Double Buffer
+   * Multithreading
 - [ ] Android Platform
