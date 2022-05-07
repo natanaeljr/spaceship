@@ -784,7 +784,7 @@ auto load_wav_audio(const std::string& audiopath) -> std::optional<ALBuffer>
   int err;
   ALuint abo;
   alGenBuffers(1, &abo);
-  alBufferData(abo, AL_FORMAT_STEREO16, data, size, samples);
+  alBufferData(abo, AL_FORMAT_MONO16, data, size, samples);
   if ((err = alGetError()) != AL_NO_ERROR) {
     ERROR("Failed to buffer audio {}, error {}", audiopath, err);
     alDeleteBuffers(1, &abo);
@@ -1098,7 +1098,7 @@ struct Game {
   std::unordered_map<int, TimedAction> timed_actions;
   Aabb screen_aabb;
   struct {
-    bool debug_info = true;
+    bool debug_info = false;
     bool aabbs = false;
   } render_opts;
   struct {
@@ -1164,6 +1164,8 @@ GameObject create_player_projectile(Game& game)
   obj.glo = std::make_shared<GLObject>(create_textured_quad_globject(game.shaders->generic_shader));
   obj.aabb = Aabb{ .min= {-0.11f, -0.38f}, .max = {+0.07f, +0.30f} };
   obj.offscreen_destroy = OffScreenDestroy{};
+  obj.sound = std::make_shared<ALSource>(create_audio_source(0.8f));
+  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("laser-14729.wav")));
   return obj;
 }
 
@@ -1245,8 +1247,6 @@ int game_init(Game& game, GLFWwindow* window)
     };
     player.aabb = Aabb{ .min = {-0.80f, -0.70f}, .max = {0.82f, 0.70f} };
     player.screen_bound = ScreenBound{};
-    player.sound = std::make_shared<ALSource>(create_audio_source(0.8f));
-    player.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("laser-14729.wav")));
   }
 
   { // Enemy
@@ -1639,7 +1639,7 @@ void key_space_handler(struct Game& game, int key, int action, int mods)
       projectile.transform.position.y += offset.y;
       projectile.prev_transform = projectile.transform;
       game.scene->objects.projectile.emplace_back(std::move(projectile));
-      game.scene->player().sound->get()->play();
+      game.scene->objects.projectile.back().sound->get()->play();
     };
     spawn_projectile(game);
     game.timed_actions[0] = TimedAction {
@@ -1788,7 +1788,7 @@ int create_window(GLFWwindow*& window)
 int main(int argc, char *argv[])
 {
   int ret = 0;
-  auto log_level = spdlog::level::trace;
+  auto log_level = spdlog::level::info;
 
   // Parse Arguments ===========================================================
   for (int argi = 1; argi < argc; ++argi) {
