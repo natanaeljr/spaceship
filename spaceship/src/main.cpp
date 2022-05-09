@@ -1552,24 +1552,36 @@ int game_loop(GLFWwindow* window)
 
   float epochtime = 0;
   float last_time = 0;
-  float lag = 0;
+  float update_lag = 0;
+  float render_lag = 0;
   constexpr float timestep = 1.f / 100.f;
-  while (!glfwWindowShouldClose(window)) {
+  constexpr float render_interval = 1.f / 60.f;
 
+  while (!glfwWindowShouldClose(window)) {
     float now_time = glfwGetTime();
-    float frame_time = now_time - last_time;
+    float loop_time = now_time - last_time;
     last_time = now_time;
-    lag += frame_time;
-    while (lag >= timestep) {
+
+    update_lag += loop_time;
+    while (update_lag >= timestep) {
       glfwPollEvents();
       game_update(game, timestep, epochtime);
       epochtime += timestep;
-      lag -= timestep;
+      update_lag -= timestep;
     }
 
-    float alpha = lag / timestep;
-    game_render(game, frame_time, timestep, alpha);
-    glfwSwapBuffers(window);
+    render_lag += loop_time;
+    if (render_lag >= render_interval) {
+      float alpha = update_lag / timestep;
+      game_render(game, render_lag, alpha);
+      glfwSwapBuffers(window);
+      render_lag = 0;
+    }
+
+    float next_loop_time_diff_us = std::min(timestep - update_lag, render_interval - render_lag);
+    next_loop_time_diff_us *= 1'000'000.f;
+    if (next_loop_time_diff_us > 10.f)
+      usleep(next_loop_time_diff_us / 2.f);
   }
 
   return 0;
