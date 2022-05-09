@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <functional>
 #include <fstream>
+#include <unistd.h>
 
 #include <glbinding/gl33core/gl.h>
 #include <glbinding/glbinding.h>
@@ -1045,6 +1046,11 @@ struct OffScreenDestroy { };
 /// Screen Bound component
 struct ScreenBound { };
 
+/// Delay Erasing component
+struct DelayErasing {
+  bool sound = true;
+};
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Game
 
@@ -1063,6 +1069,7 @@ struct GameObject {
   std::optional<OffScreenDestroy> offscreen_destroy;
   std::optional<ScreenBound> screen_bound;
   std::optional<ALSourceRef> sound;
+  std::optional<DelayErasing> delay_erasing;
 };
 
 /// Lists of all Game Objects in a Scene, divised in layers, in order of render
@@ -1141,7 +1148,7 @@ GameObject create_explosion(Game& game)
     .max_cycles = 1,
   };
   obj.sound = std::make_shared<ALSource>(create_audio_source(1.0f));
-  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("explosionCrunch_000.wav")));
+  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("explosionCrunch_000-b.wav")));
   return obj;
 }
 
@@ -1165,7 +1172,7 @@ GameObject create_player_projectile(Game& game)
   obj.aabb = Aabb{ .min= {-0.11f, -0.38f}, .max = {+0.07f, +0.30f} };
   obj.offscreen_destroy = OffScreenDestroy{};
   obj.sound = std::make_shared<ALSource>(create_audio_source(0.8f));
-  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("laser-14729.wav")));
+  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("laser-14729-c.wav")));
   return obj;
 }
 
@@ -1184,8 +1191,8 @@ int game_init(Game& game, GLFWwindow* window)
   game.key_states = KeyStateMap(GLFW_KEY_LAST);     // reserve all keys to avoid rehash
   game.screen_aabb = Aabb{ .min = {-kAspectRatio, -1.0f}, .max = {kAspectRatio, +1.0f} };
 
-  ASSERT(game.audios->get_or_load("laser-14729.wav"));
-  ASSERT(game.audios->get_or_load("explosionCrunch_000.wav"));
+  ASSERT(game.audios->get_or_load("laser-14729-c.wav"));
+  ASSERT(game.audios->get_or_load("explosionCrunch_000-b.wav"));
 
   { // Background
     game.scene->objects.background.push_back({});
@@ -1360,41 +1367,64 @@ void game_update(Game& game, float dt, float time)
     timed_action.second.update(game, dt, time);
   }
 
-  // Update all objects
+  // Update Erasing system
   for (auto* object_list : game.scene->objects.all_lists()) {
     for (auto&& obj = object_list->begin(); obj != object_list->end();) {
-      obj->prev_transform = obj->transform;
-      // Motion system
-      obj->motion.velocity += obj->motion.acceleration * dt;
-      obj->transform.position += obj->motion.velocity * dt;
-      // Sprite Animation system
-      if (obj->sprite_animation) {
-        obj->sprite_animation->update_frame(dt);
-        if (obj->sprite_animation->expired()) {
+      if (obj->delay_erasing) {
+        bool erase = true;
+        if (obj->delay_erasing->sound && obj->sound) {
+          ALint state = 0;
+          alGetSourcei(obj->sound->get()->id, AL_SOURCE_STATE, &state);
+          if (state == AL_PLAYING)
+            erase = false;
+        }
+        if (erase) {
           obj = object_list->erase(obj);
           continue;
+        }
+      }
+      obj++;
+    }
+  }
+
+  // Update all objects
+  for (auto* object_list : game.scene->objects.all_lists()) {
+    for (auto& obj : *object_list) {
+      // Transform
+      obj.prev_transform = obj.transform;
+      // Motion system
+      obj.motion.velocity += obj.motion.acceleration * dt;
+      obj.transform.position += obj.motion.velocity * dt;
+      // Sprite Animation system
+      if (obj.sprite_animation) {
+        obj.sprite_animation->update_frame(dt);
+        if (obj.sprite_animation->expired()) {
+          if (!obj.delay_erasing) {
+            obj.delay_erasing = DelayErasing{.sound = true};
+            obj.transform = Transform{
+                .position = glm::vec2(1000.0f),
+            };
+          }
         }
       }
       // Custom Update Function system
-      if (obj->update) obj->update->fn(*obj, dt, time);
+      if (obj.update) obj.update->fn(obj, dt, time);
       // Off-Screen Destroy system
-      if (obj->offscreen_destroy) {
-        Aabb obj_aabb = obj->aabb->transform(obj->transform.matrix());
+      if (obj.offscreen_destroy) {
+        Aabb obj_aabb = obj.aabb->transform(obj.transform.matrix());
         if (!collision(obj_aabb, game.screen_aabb)) {
-          obj = object_list->erase(obj);
-          continue;
+          if (!obj.delay_erasing)
+            obj.delay_erasing = DelayErasing{};
         }
       }
       // Screen Bound system
-      if (obj->screen_bound) {
-        glm::vec2& pos = obj->transform.position;
+      if (obj.screen_bound) {
+        glm::vec2& pos = obj.transform.position;
         if (pos.x < game.screen_aabb.min.x) pos.x = game.screen_aabb.min.x;
         if (pos.y < game.screen_aabb.min.y) pos.y = game.screen_aabb.min.y;
         if (pos.x > game.screen_aabb.max.x) pos.x = game.screen_aabb.max.x;
         if (pos.y > game.screen_aabb.max.y) pos.y = game.screen_aabb.max.y;
       }
-      // Loop continue
-      obj++;
     }
   }
 
@@ -1403,18 +1433,21 @@ void game_update(Game& game, float dt, float time)
   auto&& spaceship = spaceships.begin();
   for (spaceship++ /* skip player */; spaceship != spaceships.end(); spaceship++) {
     auto& projectiles = game.scene->objects.projectile;
-    for (auto&& projectile = projectiles.begin(); projectile != projectiles.end();) {
-      Aabb projectile_aabb = projectile->aabb->transform(projectile->transform.matrix());
+    for (auto& projectile : projectiles) {
+      Aabb projectile_aabb = projectile.aabb->transform(projectile.transform.matrix());
       Aabb spaceship_aabb = spaceship->aabb->transform(spaceship->transform.matrix());
       if (collision(projectile_aabb, spaceship_aabb)) {
         GameObject explosion = create_explosion(game);
-        explosion.transform.position = projectile->transform.position;
+        explosion.transform.position = projectile.transform.position;
         explosion.prev_transform = explosion.transform;
         explosion.sound->get()->play();
         game.scene->objects.explosion.emplace_back(std::move(explosion));
-        projectile = projectiles.erase(projectile);
-      } else {
-        projectile++;
+        if (!projectile.delay_erasing) {
+          projectile.delay_erasing = DelayErasing{.sound = true};
+          projectile.transform = Transform{
+              .position = glm::vec2(1000.0f),
+          };
+        }
       }
     }
   }
@@ -1488,7 +1521,7 @@ void render_aabbs(Game& game, GLShader& generic_shader)
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
-void game_render(Game& game, float frame_time, float dt, float alpha)
+void game_render(Game& game, float frame_time, float alpha)
 {
   begin_render();
 
@@ -1498,7 +1531,7 @@ void game_render(Game& game, float frame_time, float dt, float alpha)
 
   // Render all objects
   for (auto* object_list : game.scene->objects.all_lists()) {
-    for (auto obj = object_list->rbegin(); obj != object_list->rend(); obj++) {
+    for (auto obj = object_list->rbegin(); obj != object_list->rend() && obj->glo; obj++) {
       // Linear interpolation
       auto transform = Transform{
         .position = glm::lerp(obj->prev_transform.position, obj->transform.position, alpha),
@@ -1555,7 +1588,7 @@ int game_loop(GLFWwindow* window)
   float update_lag = 0;
   float render_lag = 0;
   constexpr float timestep = 1.f / 100.f;
-  constexpr float render_interval = 1.f / 60.f;
+  constexpr float render_interval = 1.f / 60.5f;
 
   while (!glfwWindowShouldClose(window)) {
     float now_time = glfwGetTime();
