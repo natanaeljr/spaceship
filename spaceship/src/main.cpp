@@ -1291,7 +1291,7 @@ int game_init(Game& game, GLFWwindow* window)
     enemy.update = UpdateFn{ [] (struct GameObject& obj, float dt, float time) {
       obj.transform.position.x = std::sin(time) * 0.4f;
     }};
-    enemy.aabb = Aabb{ .min = {-0.70f, -0.70f}, .max = {0.70f, 0.50f} };
+    enemy.aabb = Aabb{ .min = {-0.55f, -0.50f}, .max = {0.55f, 0.50f} };
   };
 
   { // FPS
@@ -1404,6 +1404,7 @@ void game_update(Game& game, float dt, float time)
             obj.transform = Transform{
                 .position = glm::vec2(1000.0f),
             };
+            obj.prev_transform = obj.transform;
           }
         }
       }
@@ -1429,25 +1430,49 @@ void game_update(Game& game, float dt, float time)
   }
 
   // Projectile<->Spaceship Collision system
-  auto& spaceships = game.scene->objects.spaceship;
-  auto&& spaceship = spaceships.begin();
-  for (spaceship++ /* skip player */; spaceship != spaceships.end(); spaceship++) {
-    auto& projectiles = game.scene->objects.projectile;
-    for (auto& projectile : projectiles) {
-      Aabb projectile_aabb = projectile.aabb->transform(projectile.transform.matrix());
-      Aabb spaceship_aabb = spaceship->aabb->transform(spaceship->transform.matrix());
-      if (collision(projectile_aabb, spaceship_aabb)) {
+  {
+    auto& spaceships = game.scene->objects.spaceship;
+    auto&& spaceship = spaceships.begin();
+    for (spaceship++ /* skip player */; spaceship != spaceships.end(); spaceship++) {
+      auto& projectiles = game.scene->objects.projectile;
+      for (auto& projectile : projectiles) {
+        Aabb projectile_aabb = projectile.aabb->transform(projectile.transform.matrix());
+        Aabb spaceship_aabb = spaceship->aabb->transform(spaceship->transform.matrix());
+        if (collision(projectile_aabb, spaceship_aabb)) {
+          GameObject explosion = create_explosion(game);
+          explosion.transform.position = projectile.transform.position;
+          explosion.prev_transform = explosion.transform;
+          explosion.sound->get()->play();
+          game.scene->objects.explosion.emplace_back(std::move(explosion));
+          if (!projectile.delay_erasing) {
+            projectile.delay_erasing = DelayErasing{.sound = true};
+            projectile.transform = Transform{
+              .position = glm::vec2(1000.0f),
+            };
+            projectile.prev_transform = projectile.transform;
+          }
+        }
+      }
+    }
+  }
+
+  // Player<->Enemy Spaceships Collision system
+  if (!game.paused)
+  {
+    auto& spaceships = game.scene->objects.spaceship;
+    auto&& player = spaceships.begin();
+    auto&& enemy = spaceships.begin();
+    for (enemy++ /* skip player */; enemy != spaceships.end(); enemy++) {
+      Aabb player_aabb = player->aabb->transform(player->transform.matrix());
+      Aabb enemy_aabb = enemy->aabb->transform(enemy->transform.matrix());
+      if (collision(player_aabb, enemy_aabb)) {
         GameObject explosion = create_explosion(game);
-        explosion.transform.position = projectile.transform.position;
+        explosion.transform.position = player->transform.position;
         explosion.prev_transform = explosion.transform;
         explosion.sound->get()->play();
         game.scene->objects.explosion.emplace_back(std::move(explosion));
-        if (!projectile.delay_erasing) {
-          projectile.delay_erasing = DelayErasing{.sound = true};
-          projectile.transform = Transform{
-              .position = glm::vec2(1000.0f),
-          };
-        }
+        player->glo = nullptr;
+        game_pause(game);
       }
     }
   }

@@ -65,13 +65,19 @@ cmake --build . --parallel $(nproc)
    * Associate with entities
 - [X] Update Loop Improvements
    * Fixed Time Step
+     + Fixed update loop
+     + Fixed render loop
+     + Controlled vsync
    * Linear Interpolation
    * Handle Key Events at fixed rate
 - [ ] Game FSM & Scenes
+   * Enemy Logic
+     - spaceship <-> spaceship collision
+     - health bar
+     - AI
+   * Game State FSM
    * Game Start screen
    * Game Over screen
-   * Game State FSM
-   * Enemy Logic
 - [ ] Windows Platform
 - [ ] Optimization
    * Instanced Rendering
