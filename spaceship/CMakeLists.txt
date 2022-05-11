@@ -38,7 +38,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 # OpenGL for graphics library
 find_package(OpenGL REQUIRED)
 # OpenAL for audio library
-find_package(OpenAL REQUIRED CONFIG)
+find_package(OpenAL REQUIRED CONFIG NO_SYSTEM_ENVIRONMENT_PATH)
 # SPDLog for fast C++ logging library
 find_package(spdlog 1.9.2 EXACT REQUIRED)
 # GLFW for desktop windowing and input

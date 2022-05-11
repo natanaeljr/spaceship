@@ -139,3 +139,22 @@ ExternalProject_Add(drlibs_external
         -DBUILD_SHARED_LIBS=OFF
         -DDR_WAV=ON)
 
+#########################################################################################
+# OpenAL
+#########################################################################################
+# OpenAL Soft is a software implementation of the OpenAL 3D audio API.
+# Provides capabilities for playing audio in a virtual 3D environment.
+# OpenAL is licensed under the LGPL license.
+message(STATUS "Adding external library: openal")
+ExternalProject_Add(openal_external
+    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/openal
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/openal
+    INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+        -DCMAKE_GENERATOR=${CMAKE_GENERATOR}
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+        -DBUILD_SHARED_LIBS=OFF
+        -DALSOFT_EXAMPLES=OFF)
+

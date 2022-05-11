@@ -19,3 +19,6 @@
 [submodule "external/drlibs"]
 	path = external/drlibs
 	url = https://github.com/natanaeljr/drlibs-cmake-package.git
+[submodule "external/openal"]
+	path = external/openal
+	url = https://github.com/kcat/openal-soft.git
