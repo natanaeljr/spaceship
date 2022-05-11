@@ -1148,7 +1148,7 @@ GameObject create_explosion(Game& game)
     .max_cycles = 1,
   };
   obj.sound = std::make_shared<ALSource>(create_audio_source(1.0f));
-  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("explosionCrunch_000-b.wav")));
+  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("explosionCrunch_000.wav")));
   return obj;
 }
 
@@ -1172,7 +1172,7 @@ GameObject create_player_projectile(Game& game)
   obj.aabb = Aabb{ .min= {-0.11f, -0.38f}, .max = {+0.07f, +0.30f} };
   obj.offscreen_destroy = OffScreenDestroy{};
   obj.sound = std::make_shared<ALSource>(create_audio_source(0.8f));
-  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("laser-14729-c.wav")));
+  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("laser-14729.wav")));
   return obj;
 }
 
@@ -1191,8 +1191,8 @@ int game_init(Game& game, GLFWwindow* window)
   game.key_states = KeyStateMap(GLFW_KEY_LAST);     // reserve all keys to avoid rehash
   game.screen_aabb = Aabb{ .min = {-kAspectRatio, -1.0f}, .max = {kAspectRatio, +1.0f} };
 
-  ASSERT(game.audios->get_or_load("laser-14729-c.wav"));
-  ASSERT(game.audios->get_or_load("explosionCrunch_000-b.wav"));
+  ASSERT(game.audios->get_or_load("laser-14729.wav"));
+  ASSERT(game.audios->get_or_load("explosionCrunch_000.wav"));
 
   { // Background
     game.scene->objects.background.push_back({});
