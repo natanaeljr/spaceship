@@ -75,6 +75,7 @@ cmake --build . --parallel $(nproc)
      - spaceship <-> spaceship collision
      - health bar
      - AI
+   * Handle Mouse Input
    * Game State FSM
    * Game Start screen
    * Game Over screen

@@ -1093,6 +1093,7 @@ struct Scene {
 /// Game State/Engine
 struct Game {
   bool paused;
+  bool vsync;
   GLFWwindow* window;
   std::optional<Camera> camera;
   std::optional<Shaders> shaders;
@@ -1180,6 +1181,7 @@ int game_init(Game& game, GLFWwindow* window)
 {
   INFO("Initializing game");
   game.paused = false;
+  game.vsync = true;
   game.window = window;
   game.camera = Camera::create(kAspectRatio);
   game.shaders = load_shaders();
@@ -1607,13 +1609,15 @@ int game_loop(GLFWwindow* window)
   if (ret) return ret;
   init_key_handlers(*game.key_handlers);
   glfwSetWindowUserPointer(window, &game);
+  GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+  const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+  const float refresh_rate = mode->refreshRate;
 
   float epochtime = 0;
   float last_time = 0;
   float update_lag = 0;
   float render_lag = 0;
   constexpr float timestep = 1.f / 100.f;
-  constexpr float render_interval = 1.f / 60.5f;
 
   while (!glfwWindowShouldClose(window)) {
     float now_time = glfwGetTime();
@@ -1629,6 +1633,7 @@ int game_loop(GLFWwindow* window)
     }
 
     render_lag += loop_time;
+    const float render_interval = game.vsync ? (1.f / (refresh_rate + 0.5f)) : 0.0f;
     if (render_lag >= render_interval) {
       float alpha = update_lag / timestep;
       game_render(game, render_lag, alpha);
@@ -1734,6 +1739,12 @@ void key_f7_handler(struct Game& game, int key, int action, int mods)
     game.render_opts.aabbs = !game.render_opts.aabbs;
 }
 
+void key_f6_handler(struct Game& game, int key, int action, int mods)
+{
+  if (action == GLFW_PRESS)
+    game.vsync = !game.vsync;
+}
+
 void init_key_handlers(KeyHandlerMap& key_handlers)
 {
   key_handlers[GLFW_KEY_LEFT] = key_left_right_handler;
@@ -1742,6 +1753,7 @@ void init_key_handlers(KeyHandlerMap& key_handlers)
   key_handlers[GLFW_KEY_DOWN] = key_up_down_handler;
   key_handlers[GLFW_KEY_SPACE] = key_space_handler;
   key_handlers[GLFW_KEY_F3] = key_f3_handler;
+  key_handlers[GLFW_KEY_F6] = key_f6_handler;
   key_handlers[GLFW_KEY_F7] = key_f7_handler;
 }
 
