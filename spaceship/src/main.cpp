@@ -47,15 +47,15 @@ using namespace gl;
     CRITICAL(__VA_ARGS__);     \
     std::abort();              \
   } while (0)
-#define ASSERT_MSG(cond, ...)  \
+#define ASSERT_MSG(expr, ...)  \
   do {                         \
-    if (cond) {                \
+    if (expr) {                \
     } else {                   \
       ABORT_MSG(__VA_ARGS__);  \
     }                          \
   } while (0)
-#define ASSERT(cond) ASSERT_MSG(cond, "Assertion failed: ({})", #cond)
-#define ASSERT_OPT(opt) [&]{ auto ret = (opt); ASSERT(ret); return std::move(*ret); }()
+#define ASSERT_RET(expr) [&]{ auto ret = (expr); ASSERT_MSG(ret, "Assertion failed: ({})", #expr); return ret; }()
+#define ASSERT(expr) ASSERT_MSG(expr, "Assertion failed: ({})", #expr)
 
 using namespace std::string_literals;
 
@@ -692,11 +692,11 @@ struct Fonts {
 Fonts load_fonts()
 {
   return {
-    .menlo = std::make_shared<GLFont>(ASSERT_OPT(load_font("Menlo-Regular.ttf"))),
-    .jetbrains = std::make_shared<GLFont>(ASSERT_OPT(load_font("JetBrainsMono-Regular.ttf"))),
-    .google_sans = std::make_shared<GLFont>(ASSERT_OPT(load_font("GoogleSans-Regular.ttf"))),
-    .kanit = std::make_shared<GLFont>(ASSERT_OPT(load_font("Kanit/Kanit-Bold.ttf"))),
-    .russo_one = std::make_shared<GLFont>(ASSERT_OPT(load_font("Russo_One/RussoOne-Regular.ttf"))),
+    .menlo = std::make_shared<GLFont>(*ASSERT_RET(load_font("Menlo-Regular.ttf"))),
+    .jetbrains = std::make_shared<GLFont>(*ASSERT_RET(load_font("JetBrainsMono-Regular.ttf"))),
+    .google_sans = std::make_shared<GLFont>(*ASSERT_RET(load_font("GoogleSans-Regular.ttf"))),
+    .kanit = std::make_shared<GLFont>(*ASSERT_RET(load_font("Kanit/Kanit-Bold.ttf"))),
+    .russo_one = std::make_shared<GLFont>(*ASSERT_RET(load_font("Russo_One/RussoOne-Regular.ttf"))),
   };
 }
 
@@ -1131,7 +1131,7 @@ GameObject create_explosion(Game& game)
     .velocity = glm::vec2(0.0f),
     .acceleration = glm::vec2(0.0f),
   };
-  obj.texture = ASSERT_OPT(game.textures->get_or_load("Explosion.png", GL_LINEAR));
+  obj.texture = ASSERT_RET(game.textures->get_or_load("Explosion.png", GL_LINEAR));
   auto [vertices, indices] = gen_sprite_quads(6);
   obj.glo = std::make_shared<GLObject>(create_textured_globject(game.shaders->generic_shader, vertices, indices));
   obj.sprite_animation = SpriteAnimation{
@@ -1149,7 +1149,7 @@ GameObject create_explosion(Game& game)
     .max_cycles = 1,
   };
   obj.sound = std::make_shared<ALSource>(create_audio_source(1.0f));
-  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("explosionCrunch_000.wav")));
+  obj.sound->get()->bind_buffer(*ASSERT_RET(game.audios->get_or_load("explosionCrunch_000.wav")));
   return obj;
 }
 
@@ -1168,12 +1168,12 @@ GameObject create_player_projectile(Game& game)
     .velocity = glm::vec2(0.0f, 2.6f),
     .acceleration = glm::vec2(0.0f),
   };
-  obj.texture = ASSERT_OPT(game.textures->get_or_load("Projectile01.png", GL_LINEAR));
+  obj.texture = ASSERT_RET(game.textures->get_or_load("Projectile01.png", GL_LINEAR));
   obj.glo = std::make_shared<GLObject>(create_textured_quad_globject(game.shaders->generic_shader));
   obj.aabb = Aabb{ .min= {-0.11f, -0.38f}, .max = {+0.07f, +0.30f} };
   obj.offscreen_destroy = OffScreenDestroy{};
   obj.sound = std::make_shared<ALSource>(create_audio_source(0.8f));
-  obj.sound->get()->bind_buffer(ASSERT_OPT(game.audios->get_or_load("laser-14729.wav")));
+  obj.sound->get()->bind_buffer(*ASSERT_RET(game.audios->get_or_load("laser-14729.wav")));
   return obj;
 }
 
@@ -1211,7 +1211,7 @@ int game_init(Game& game, GLFWwindow* window)
       .acceleration = glm::vec2(0.0f),
     };
     DEBUG("Loading Background Texture");
-    background.texture = ASSERT_OPT(game.textures->get_or_load("background01.png", GL_NEAREST));
+    background.texture = ASSERT_RET(game.textures->get_or_load("background01.png", GL_NEAREST));
     DEBUG("Loading Background Quad");
     background.glo = std::make_shared<GLObject>(create_textured_quad_globject(game.shaders->generic_shader));
     background.update = UpdateFn{ [] (struct GameObject& obj, float dt, float time) {
@@ -1237,7 +1237,7 @@ int game_init(Game& game, GLFWwindow* window)
       .acceleration = glm::vec2(0.0f),
     };
     DEBUG("Loading Player Spaceship Texture");
-    player.texture = ASSERT_OPT(game.textures->get_or_load("Lightning.png", GL_NEAREST));
+    player.texture = ASSERT_RET(game.textures->get_or_load("Lightning.png", GL_NEAREST));
     DEBUG("Loading Player Spaceship Vertices");
     auto [vertices, indices] = gen_sprite_quads(4);
     player.glo = std::make_shared<GLObject>(create_textured_globject(game.shaders->generic_shader, vertices, indices));
@@ -1273,7 +1273,7 @@ int game_init(Game& game, GLFWwindow* window)
       .acceleration = glm::vec2(0.0f),
     };
     DEBUG("Loading Enemy Spaceship Texture");
-    enemy.texture = ASSERT_OPT(game.textures->get_or_load("Saboteur.png", GL_NEAREST));
+    enemy.texture = ASSERT_RET(game.textures->get_or_load("Saboteur.png", GL_NEAREST));
     DEBUG("Loading Enemy Spaceship Vertices");
     auto [vertices, indices] = gen_sprite_quads(4);
     enemy.glo = std::make_shared<GLObject>(create_textured_globject(game.shaders->generic_shader, vertices, indices));
