@@ -85,6 +85,19 @@ struct UniqueNum {
   operator T() const { return inner; }
 };
 
+/// Get value from map or emplace value generated from Function, return mapped element
+template <typename Map, typename Func>
+auto map_find_or_emplace(Map &map, const typename Map::key_type &key, Func &&func) -> std::optional<typename Map::mapped_type> {
+  auto it = map.find(key);
+  if (it != map.end()) {
+    return it->second;
+  } else {
+    auto value = func();
+    if (!value) return std::nullopt;
+    return map.emplace(key, std::move(*value)).first->second;
+  }
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Shaders
 
@@ -597,16 +610,11 @@ class Textures {
   /// Get a Texture ID from cache, or load it if not cached yet
   template<typename ...Args>
   auto get_or_load(const std::string& texpath, Args&&... args) -> std::optional<GLTextureRef> {
-    auto it = map.find(texpath);
-    if (it != map.end()) {
-      return it->second;
-    } else {
+    return map_find_or_emplace(map, texpath, [&] () -> std::optional<GLTextureRef> {
       auto tex = load_rgba_texture(texpath, std::forward<Args>(args)...);
       if (!tex) return std::nullopt;
-      auto texptr = std::make_shared<GLTexture>(std::move(*tex));
-      map.emplace(texpath, texptr);
-      return texptr;
-    }
+      return std::make_optional(std::make_shared<GLTexture>(std::move(*tex)));
+    });
   }
 };
 
@@ -841,18 +849,13 @@ struct Audios {
 
  public:
   /// Get an Audio buffer from cache, or load it if not cached yet
-  template<typename ...Args>
-  auto get_or_load(const std::string& audiopath, Args&&... args) -> std::optional<ALBufferRef> {
-    auto it = map.find(audiopath);
-    if (it != map.end()) {
-      return it->second;
-    } else {
+  template <typename... Args>
+  auto get_or_load(const std::string &audiopath, Args &&...args) -> std::optional<ALBufferRef> {
+    return map_find_or_emplace(map, audiopath, [&] () -> std::optional<ALBufferRef> {
       auto audio = load_wav_audio(audiopath, std::forward<Args>(args)...);
       if (!audio) return std::nullopt;
-      auto audioptr = std::make_shared<ALBuffer>(std::move(*audio));
-      map.emplace(audiopath, audioptr);
-      return audioptr;
-    }
+      return std::make_optional(std::make_shared<ALBuffer>(std::move(*audio)));
+    });
   }
 };
 
