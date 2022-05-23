@@ -56,6 +56,7 @@ using namespace gl;
   } while (0)
 #define ASSERT_RET(expr) [&]{ auto ret = (expr); ASSERT_MSG(ret, "Assertion failed: ({})", #expr); return ret; }()
 #define ASSERT(expr) ASSERT_MSG(expr, "Assertion failed: ({})", #expr)
+#define DBG(expr) [&]{ auto ret = (expr); DEBUG("({}) = {{{}}}", #expr, ret); return ret; }()
 
 using namespace std::string_literals;
 
@@ -84,6 +85,13 @@ struct UniqueNum {
   UniqueNum& operator=(const UniqueNum&) = delete;
   operator T() const { return inner; }
 };
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// Colors
+
+[[maybe_unused]] constexpr auto kWhite = glm::vec4(1.f);
+[[maybe_unused]] constexpr auto kWhiteDimmed = glm::vec4(glm::vec3(0.87f), 1.f);
+[[maybe_unused]] constexpr auto kBlack = glm::vec4(glm::vec3(0.f), 1.f);
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Shaders
@@ -611,7 +619,7 @@ class Textures {
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Fonts
+/// Fonts
 
 /// Upload font bitmap texture to GPU memory
 auto load_font_texture(const uint8_t data[], size_t width, size_t height) -> GLTexture
@@ -637,6 +645,7 @@ struct GLFont {
   int char_beg;
   int char_count;
   std::vector<stbtt_packedchar> chars;
+  float pixel_height;
 };
 
 /// GLFont reference type alias
@@ -675,7 +684,8 @@ auto load_font(const std::string& fontname) -> std::optional<GLFont>
     .bitmap_px_height = kBitmapPixelSize,
     .char_beg = kCharBeg,
     .char_count = kCharCount,
-    .chars = std::move(chars)
+    .chars = std::move(chars),
+    .pixel_height = kPixelHeight,
   };
 }
 
@@ -704,13 +714,14 @@ Fonts load_fonts()
 /// Text
 
 /// Generate quad vertices for a text with the given font.
-auto gen_text_quads(const GLFont& font, std::string_view text) -> std::tuple<std::vector<TextureVertex>, std::vector<GLushort>>
+auto gen_text_quads(const GLFont& font, std::string_view text)
 {
   std::vector<TextureVertex> vertices;
   vertices.reserve(4 * text.size());
   std::vector<GLushort> indices;
   indices.reserve(6 * text.size());
   float x = 0, y = 0;
+  float width = 0;
   size_t i = 0;
   for (char ch : text) {
     if (ch < font.char_beg || ch > (font.char_beg + font.char_count))
@@ -723,9 +734,10 @@ auto gen_text_quads(const GLFont& font, std::string_view text) -> std::tuple<std
     vertices.emplace_back(TextureVertex{ .pos = { q.x0, q.y1 }, .texcoord = { q.s0, q.t1 } });
     for (auto v : kQuadIndices)
       indices.emplace_back(4*i+v);
+    width = q.x1;
     i++;
   }
-  return {vertices, indices};
+  return std::tuple{vertices, indices, width};
 }
 
 /// Upload new Text Indexed-Vertex object to GPU memory
@@ -737,7 +749,7 @@ GLObject create_text_globject(const GLShader& shader, gsl::span<const TextureVer
 /// Update GLObject data with the new generated quads for the given Text
 auto update_text_globject(const GLShader& shader, GLObject& glo, const GLFont& font, std::string_view text, GLenum usage = GL_STATIC_DRAW)
 {
-  auto [vertices, indices] = gen_text_quads(font, text);
+  auto [vertices, indices, _] = gen_text_quads(font, text);
   if (vertices.size() == glo.num_vertices && indices.size() == glo.num_indices) {
     glBindVertexArray(glo.vao);
     glBindBuffer(GL_ARRAY_BUFFER, glo.vbo);
@@ -1303,12 +1315,12 @@ int game_init(Game& game, GLFWwindow* window)
     fps.transform.scale = glm::vec2(0.0024f);
     fps.transform.scale.y = -fps.transform.scale.y;
     DEBUG("Loading FPS Text");
-    auto [vertices, indices] = gen_text_quads(*game.fonts->russo_one, "FPS 00 ms 00.000");
+    auto [vertices, indices, _] = gen_text_quads(*game.fonts->russo_one, "FPS 00 ms 00.000");
     fps.glo = create_text_globject(game.shaders->generic_shader, vertices, indices, GL_DYNAMIC_DRAW);
     fps.text_fmt = TextFormat{
       .font = game.fonts->russo_one,
-      .color = glm::vec4(glm::vec3(0.87f), 1.f),
-      .outline_color = glm::vec4(glm::vec3(0.f), 1.f),
+      .color = kWhiteDimmed,
+      .outline_color = kBlack,
       .outline_thickness = 1.0f,
     };
   }
@@ -1320,12 +1332,12 @@ int game_init(Game& game, GLFWwindow* window)
     obj.transform.scale = glm::vec2(0.0024f);
     obj.transform.scale.y = -obj.transform.scale.y;
     DEBUG("Loading OBJ Counter Text");
-    auto [vertices, indices] = gen_text_quads(*game.fonts->russo_one, "OBJ 000");
+    auto [vertices, indices, _] = gen_text_quads(*game.fonts->russo_one, "OBJ 000");
     obj.glo = create_text_globject(game.shaders->generic_shader, vertices, indices, GL_DYNAMIC_DRAW);
     obj.text_fmt = TextFormat{
       .font = game.fonts->russo_one,
-      .color = glm::vec4(glm::vec3(0.87f), 1.f),
-      .outline_color = glm::vec4(glm::vec3(0.f), 1.f),
+      .color = kWhiteDimmed,
+      .outline_color = kBlack,
       .outline_thickness = 1.0f,
     };
   }
@@ -1523,6 +1535,23 @@ void update_obj_counter(Game& game, const GLShader& shader, GLObject& glo, const
   }
 }
 
+/// Render a text in immediate mode: construct text object, draw and discard
+void immediate_draw_text(const GLShader &shader, const std::string_view text, const std::optional<glm::vec2> position, const GLFont &font,
+                         const float text_size_px, const glm::vec4 &color, const glm::vec4 &outline_color, const float outline_thickness)
+{
+  const auto [vertices, indices, width] = gen_text_quads(font, text);
+  auto glo = create_text_globject(shader, vertices, indices, GL_STREAM_DRAW);
+  const float normal_pixel_scale = 1.f / font.pixel_height;
+  const float normal_text_scale = text_size_px / kHeight;
+  float scale = normal_pixel_scale * normal_text_scale;
+  auto transform = Transform{};
+  transform.scale = glm::vec2(scale);
+  transform.scale.y = -transform.scale.y;
+  if (position) transform.position = *position;
+  else /*center*/ transform.position.x -= transform.scale.x * (width / 2.f);
+  draw_text_object(shader, font.texture, glo, transform.matrix(), kWhite, kBlack, 1.f);
+}
+
 /// Render AABBs for all objects that have it
 void render_aabbs(Game& game, GLShader& generic_shader)
 {
@@ -1600,6 +1629,10 @@ void game_render(Game& game, float frame_time, float alpha)
     draw_text_object(generic_shader, objc.text_fmt.font->texture, *objc.glo, objc.transform.matrix(),
                      objc.text_fmt.color, objc.text_fmt.outline_color, objc.text_fmt.outline_thickness);
   }
+
+  // Render Game Pause
+  if (game.paused)
+    immediate_draw_text(generic_shader, "PAUSED", std::nullopt, *game.fonts->russo_one, 50.f, kWhite, kBlack, 1.f);
 }
 
 int game_loop(GLFWwindow* window)
