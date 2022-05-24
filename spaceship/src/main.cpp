@@ -477,15 +477,15 @@ static constexpr GLushort kQuadIndices[] = {
 };
 
 /// Upload new colored Quad object to GPU memory
-GLObject create_colored_quad_globject(const GLShader& shader)
+GLObject create_colored_quad_globject(const GLShader& shader, GLenum usage = GL_STATIC_DRAW)
 {
-  return create_colored_globject(shader, kColorQuadVertices, kQuadIndices);
+  return create_colored_globject(shader, kColorQuadVertices, kQuadIndices, usage);
 }
 
 /// Upload new textured Quad object to GPU memory
-GLObject create_textured_quad_globject(const GLShader& shader)
+GLObject create_textured_quad_globject(const GLShader& shader, GLenum usage = GL_STATIC_DRAW)
 {
-  return create_textured_globject(shader, kTextureQuadVertices, kQuadIndices);
+  return create_textured_globject(shader, kTextureQuadVertices, kQuadIndices, usage);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1107,6 +1107,8 @@ struct Game {
   bool paused;
   bool vsync;
   GLFWwindow* window;
+  glm::ivec2 winsize;
+  glm::vec2 cursor;
   std::optional<Camera> camera;
   std::optional<Shaders> shaders;
   std::optional<Fonts> fonts;
@@ -1195,6 +1197,8 @@ int game_init(Game& game, GLFWwindow* window)
   game.paused = false;
   game.vsync = true;
   game.window = window;
+  game.winsize = glm::ivec2(kWidth, kHeight);
+  game.cursor = glm::vec2(0.f);
   game.camera = Camera::create(kAspectRatio);
   game.shaders = load_shaders();
   game.fonts = load_fonts();
@@ -1633,6 +1637,15 @@ void game_render(Game& game, float frame_time, float alpha)
   // Render Game Pause
   if (game.paused)
     immediate_draw_text(generic_shader, "PAUSED", std::nullopt, *game.fonts->russo_one, 50.f, kWhite, kBlack, 1.f);
+
+  // Render Cursor
+  float x = ((game.cursor.x * (2.f * kAspectRatio)) / game.winsize.x) - kAspectRatio;
+  float y = ((game.cursor.y * -2.f) / game.winsize.y) + 1.f;
+  auto cursor_obj = create_colored_quad_globject(generic_shader);
+  auto transform = Transform{};
+  transform.scale = glm::vec2(0.03f);
+  transform.position = glm::vec2(x, y);
+  draw_colored_object(generic_shader, cursor_obj, transform.matrix());
 }
 
 int game_loop(GLFWwindow* window)
@@ -1824,6 +1837,12 @@ void window_focus_callback(GLFWwindow* window, int focused)
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
+  auto game = static_cast<Game*>(glfwGetWindowUserPointer(window));
+  if (!game) return; // game not initialized yet
+
+  game->winsize.x = width;
+  game->winsize.y = height;
+
   float x_rest = 0.0f;
   float y_rest = 0.0f;
   float aspect = ((float)width / (float)height);
@@ -1834,6 +1853,15 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
   float x_off = x_rest / 2.f;
   float y_off = y_rest / 2.f;
   glViewport(x_off, y_off, (width - x_rest), (height - y_rest));
+}
+
+void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
+{
+  auto game = static_cast<Game*>(glfwGetWindowUserPointer(window));
+  if (!game) return; // game not initialized yet
+
+  game->cursor.x = (float)xpos;
+  game->cursor.y = (float)ypos;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1889,6 +1917,7 @@ int create_window(GLFWwindow*& window)
   glfwSetKeyCallback(window, key_event_callback);
   glfwSetWindowFocusCallback(window, window_focus_callback);
   glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+  glfwSetCursorPosCallback(window, cursor_position_callback);
 
   // settings
   glfwSetWindowAspectRatio(window, kWidth, kHeight);
