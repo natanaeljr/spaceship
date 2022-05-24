@@ -42,20 +42,10 @@ using namespace gl;
 #define WARN SPDLOG_WARN
 #define ERROR SPDLOG_ERROR
 #define CRITICAL SPDLOG_CRITICAL
-#define ABORT_MSG(...)         \
-  do {                         \
-    CRITICAL(__VA_ARGS__);     \
-    std::abort();              \
-  } while (0)
-#define ASSERT_MSG(expr, ...)  \
-  do {                         \
-    if (expr) {                \
-    } else {                   \
-      ABORT_MSG(__VA_ARGS__);  \
-    }                          \
-  } while (0)
-#define ASSERT_RET(expr) [&]{ auto ret = (expr); ASSERT_MSG(ret, "Assertion failed: ({})", #expr); return ret; }()
+#define ABORT_MSG(...) do { CRITICAL(__VA_ARGS__); std::abort(); } while (0)
+#define ASSERT_MSG(expr, ...) do { if (expr) { } else { ABORT_MSG(__VA_ARGS__); } } while (0)
 #define ASSERT(expr) ASSERT_MSG(expr, "Assertion failed: ({})", #expr)
+#define ASSERT_RET(expr) [&]{ auto ret = (expr); ASSERT_MSG(ret, "Assertion failed: ({})", #expr); return ret; }()
 #define DBG(expr) [&]{ auto ret = (expr); DEBUG("({}) = {{{}}}", #expr, ret); return ret; }()
 
 using namespace std::string_literals;
@@ -1000,7 +990,7 @@ bool collision(const Aabb& a, const Aabb& b)
 
 /// Tag component
 struct Tag {
-  char name[20] = "?";
+  char label[20] = "?";
 };
 
 /// Transform component
@@ -1106,6 +1096,7 @@ struct Scene {
 struct Game {
   bool paused;
   bool vsync;
+  bool hover;
   GLFWwindow* window;
   glm::ivec2 winsize;
   glm::vec2 cursor;
@@ -1196,6 +1187,7 @@ int game_init(Game& game, GLFWwindow* window)
   INFO("Initializing game");
   game.paused = false;
   game.vsync = true;
+  game.hover = false;
   game.window = window;
   game.winsize = glm::ivec2(kWidth, kHeight);
   game.cursor = glm::vec2(0.f);
@@ -1378,6 +1370,14 @@ void game_pause(Game& game)
   game.paused = true;
 }
 
+/// Convert cursor position from viewport space to normalized space (-1,+1)
+glm::vec2 normalized_cursor_pos(glm::vec2 cursor, glm::vec2 winsize)
+{
+  float x = ((cursor.x * (2.f * kAspectRatio)) / winsize.x) - kAspectRatio;
+  float y = ((cursor.y * -2.f) / winsize.y) + 1.f;
+  return {x, y};
+}
+
 void game_update(Game& game, float dt, float time)
 {
   // Update TimedAction's
@@ -1402,6 +1402,22 @@ void game_update(Game& game, float dt, float time)
         }
       }
       obj++;
+    }
+  }
+
+  // Cursor Picking system
+  {
+    game.hover = false;
+    auto cursor_pos = normalized_cursor_pos(game.cursor, game.winsize);
+    auto cursor_aabb = Aabb{.min = {cursor_pos.x, cursor_pos.y},
+                            .max = {cursor_pos.x + (1.f / game.winsize.x),
+                                    cursor_pos.y + (1.f / game.winsize.y)}};
+    for (auto &spaceship : game.scene->objects.spaceship) {
+      if (!spaceship.aabb) continue;
+      Aabb spaceship_aabb = spaceship.aabb->transform(spaceship.transform.matrix());
+      if (collision(cursor_aabb, spaceship_aabb)) {
+        game.hover = true;
+      }
     }
   }
 
@@ -1618,7 +1634,7 @@ void game_render(Game& game, float frame_time, float alpha)
   }
 
   // Render AABBs
-  if (game.render_opts.aabbs)
+  if (game.render_opts.aabbs && game.hover)
     render_aabbs(game, generic_shader);
 
   // Render Debug Info
@@ -1639,13 +1655,12 @@ void game_render(Game& game, float frame_time, float alpha)
     immediate_draw_text(generic_shader, "PAUSED", std::nullopt, *game.fonts->russo_one, 50.f, kWhite, kBlack, 1.f);
 
   // Render Cursor
-  float x = ((game.cursor.x * (2.f * kAspectRatio)) / game.winsize.x) - kAspectRatio;
-  float y = ((game.cursor.y * -2.f) / game.winsize.y) + 1.f;
-  auto cursor_obj = create_colored_quad_globject(generic_shader);
-  auto transform = Transform{};
-  transform.scale = glm::vec2(0.03f);
-  transform.position = glm::vec2(x, y);
-  draw_colored_object(generic_shader, cursor_obj, transform.matrix());
+  //auto cursor_pos = normalized_cursor_pos(game.cursor, game.winsize);
+  //auto cursor_obj = create_colored_quad_globject(generic_shader);
+  //auto transform = Transform{};
+  //transform.scale = glm::vec2(0.03f);
+  //transform.position = glm::vec2(cursor_pos.x, cursor_pos.y);
+  //draw_colored_object(generic_shader, cursor_obj, transform.matrix());
 }
 
 int game_loop(GLFWwindow* window)
