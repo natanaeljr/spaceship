@@ -986,6 +986,30 @@ bool collision(const Aabb& a, const Aabb& b)
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// Cursor
+
+/// Convert cursor position from window space to normalized space (-1,+1)
+///
+///  viewport_offset.x
+/// |-------|
+/// +------------------------+ - viewport_offset.y
+/// | (0,0) +-------+ (W, 0) | -
+/// |       | view  |        |
+/// |       | port  |        |
+/// |       | space |        |
+/// | (0,H) +-------+ (W, H) |
+/// +------------------------+
+///       window space
+glm::vec2 normalized_cursor_pos(glm::vec2 cursor, glm::uvec2 viewport_size, glm::uvec2 viewport_offset)
+{
+  float normal_max_width = 2.f * kAspectRatio;
+  float normal_max_height = 2.f;
+  float x = (((cursor.x - viewport_offset.x) * normal_max_width) / viewport_size.x) - kAspectRatio;
+  float y = (((cursor.y - viewport_offset.y) * -normal_max_height) / viewport_size.y) + 1.f;
+  return {x, y};
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Components
 
 /// Tag component
@@ -1097,9 +1121,11 @@ struct Game {
   bool paused;
   bool vsync;
   bool hover;
-  GLFWwindow* window;
-  glm::ivec2 winsize;
   glm::vec2 cursor;
+  GLFWwindow* window;
+  glm::uvec2 windown_size;
+  glm::uvec2 viewport_size;
+  glm::uvec2 viewport_offset;
   std::optional<Camera> camera;
   std::optional<Shaders> shaders;
   std::optional<Fonts> fonts;
@@ -1188,9 +1214,11 @@ int game_init(Game& game, GLFWwindow* window)
   game.paused = false;
   game.vsync = true;
   game.hover = false;
-  game.window = window;
-  game.winsize = glm::ivec2(kWidth, kHeight);
   game.cursor = glm::vec2(0.f);
+  game.window = window;
+  game.windown_size = glm::uvec2(kWidth, kHeight);
+  game.viewport_size = glm::uvec2(kWidth, kHeight);
+  game.viewport_offset = glm::uvec2(0);
   game.camera = Camera::create(kAspectRatio);
   game.shaders = load_shaders();
   game.fonts = load_fonts();
@@ -1370,14 +1398,6 @@ void game_pause(Game& game)
   game.paused = true;
 }
 
-/// Convert cursor position from viewport space to normalized space (-1,+1)
-glm::vec2 normalized_cursor_pos(glm::vec2 cursor, glm::vec2 winsize)
-{
-  float x = ((cursor.x * (2.f * kAspectRatio)) / winsize.x) - kAspectRatio;
-  float y = ((cursor.y * -2.f) / winsize.y) + 1.f;
-  return {x, y};
-}
-
 void game_update(Game& game, float dt, float time)
 {
   // Update TimedAction's
@@ -1408,10 +1428,9 @@ void game_update(Game& game, float dt, float time)
   // Cursor Picking system
   {
     game.hover = false;
-    auto cursor_pos = normalized_cursor_pos(game.cursor, game.winsize);
-    auto cursor_aabb = Aabb{.min = {cursor_pos.x, cursor_pos.y},
-                            .max = {cursor_pos.x + (1.f / game.winsize.x),
-                                    cursor_pos.y + (1.f / game.winsize.y)}};
+    const auto pixel_size = glm::vec2(1.f / game.viewport_size.x, 1.f / game.viewport_size.y);
+    const auto cursor_pos = normalized_cursor_pos(game.cursor, game.viewport_size, game.viewport_offset);
+    const auto cursor_aabb = Aabb{.min = cursor_pos, .max = cursor_pos + pixel_size};
     for (auto &spaceship : game.scene->objects.spaceship) {
       if (!spaceship.aabb) continue;
       Aabb spaceship_aabb = spaceship.aabb->transform(spaceship.transform.matrix());
@@ -1821,7 +1840,7 @@ void init_key_handlers(KeyHandlerMap& key_handlers)
 void key_event_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
   auto game = static_cast<Game*>(glfwGetWindowUserPointer(window));
-  if (!game) return; // game not initialized yet
+  if (!game) return;
 
   if (action != GLFW_PRESS && action != GLFW_RELEASE)
     return;
@@ -1839,7 +1858,7 @@ void key_event_callback(GLFWwindow* window, int key, int scancode, int action, i
 void window_focus_callback(GLFWwindow* window, int focused)
 {
   auto game = static_cast<Game*>(glfwGetWindowUserPointer(window));
-  if (!game) return; // game not initialized yet
+  if (!game) return;
 
   if (focused) {
     DEBUG("Window Focused");
@@ -1853,10 +1872,7 @@ void window_focus_callback(GLFWwindow* window, int focused)
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
   auto game = static_cast<Game*>(glfwGetWindowUserPointer(window));
-  if (!game) return; // game not initialized yet
-
-  game->winsize.x = width;
-  game->winsize.y = height;
+  if (!game) return;
 
   float x_rest = 0.0f;
   float y_rest = 0.0f;
@@ -1868,13 +1884,19 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
   float x_off = x_rest / 2.f;
   float y_off = y_rest / 2.f;
   glViewport(x_off, y_off, (width - x_rest), (height - y_rest));
+
+  game->windown_size.y = height;
+  game->windown_size.x = width;
+  game->viewport_size.x = (width - x_rest);
+  game->viewport_size.y = (height - y_rest);
+  game->viewport_offset.x = x_off;
+  game->viewport_offset.y = y_off;
 }
 
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 {
   auto game = static_cast<Game*>(glfwGetWindowUserPointer(window));
-  if (!game) return; // game not initialized yet
-
+  if (!game) return;
   game->cursor.x = (float)xpos;
   game->cursor.y = (float)ypos;
 }
