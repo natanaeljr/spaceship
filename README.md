@@ -72,14 +72,13 @@ cmake --build . --parallel $(nproc)
    * Handle Key Events at fixed rate
 - [ ] Game FSM & Scenes
    * Enemy Logic
-     - spaceship <-> spaceship collision
-     - health bar
-     - AI
+     - Spaceships collision
+     - Health Bar
+     - Enemy AI
    * Handle Mouse Input
    * Game State FSM
    * Game Start screen
    * Game Over screen
-- [ ] Windows Platform
 - [ ] Optimization
    * Instanced Rendering
    * OpenGL 4.5 DSA
@@ -87,4 +86,5 @@ cmake --build . --parallel $(nproc)
    * Custom Allocators
    * Double Buffer
    * Multithreading
+- [ ] Windows Platform
 - [ ] Android Platform
