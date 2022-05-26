@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <functional>
 #include <fstream>
-#include <unistd.h>
+#include <thread>
 
 #include <glbinding/gl33core/gl.h>
 #include <glbinding/glbinding.h>
@@ -49,6 +49,7 @@ using namespace gl;
 #define DBG(expr) [&]{ auto ret = (expr); DEBUG("({}) = {{{}}}", #expr, ret); return ret; }()
 
 using namespace std::string_literals;
+using namespace std::chrono_literals;
 
 /// Read file contents to a string
 auto read_file_to_string(const std::string& filename) -> std::optional<std::string>
@@ -377,6 +378,7 @@ struct GLObject {
   size_t num_indices;
   size_t num_vertices;
 
+  GLObject() = default;
   ~GLObject() {
     if (vbo) glDeleteBuffers(1, &vbo.inner);
     if (ebo) glDeleteBuffers(1, &ebo.inner);
@@ -410,7 +412,13 @@ GLObject create_colored_globject(const GLShader& shader, gsl::span<const ColorVe
   glDisableVertexAttribArray(shader.attr_loc(GLAttr::TEXCOORD));
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size_bytes(), indices.data(), usage);
-  return { vbo, ebo, vao, indices.size(), vertices.size() };
+  GLObject obj;
+  obj.vbo = vbo;
+  obj.ebo = ebo;
+  obj.vao = vao;
+  obj.num_indices = indices.size();
+  obj.num_vertices = vertices.size();
+  return obj;
 }
 
 /// Upload new Textured Indexed-Vertex object to GPU memory
@@ -430,7 +438,13 @@ GLObject create_textured_globject(const GLShader& shader, gsl::span<const Textur
   glDisableVertexAttribArray(shader.attr_loc(GLAttr::COLOR));
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size_bytes(), indices.data(), usage);
-  return { vbo, ebo, vao, indices.size(), vertices.size() };
+  GLObject obj;
+  obj.vbo = vbo;
+  obj.ebo = ebo;
+  obj.vao = vao;
+  obj.num_indices = indices.size();
+  obj.num_vertices = vertices.size();
+  return obj;
 }
 
 // Quad Vertices:
@@ -548,6 +562,7 @@ struct SpriteAnimation {
 struct GLTexture {
   UniqueNum<GLuint> id;
 
+  GLTexture() = default;
   ~GLTexture() {
     if (id) glDeleteTextures(1, &id.inner);
   }
@@ -584,7 +599,9 @@ auto load_rgba_texture(const std::string& inpath, GLenum min_filter, GLenum mag_
   glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, type, GL_UNSIGNED_BYTE, data);
   glGenerateMipmap(GL_TEXTURE_2D);
   stbi_image_free(data);
-  return GLTexture{ texture };
+  GLTexture gltexture;
+  gltexture.id = texture;
+  return gltexture;
 }
 
 /// Holds the textures used by the game
@@ -624,7 +641,9 @@ auto load_font_texture(const uint8_t data[], size_t width, size_t height) -> GLT
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, data);
   glGenerateMipmap(GL_TEXTURE_2D);
-  return { texture };
+  GLTexture gltexture;
+  gltexture.id = texture;
+  return gltexture;
 }
 
 /// Holds the a font bitmap texture and info needed to render char quads
@@ -656,10 +675,10 @@ auto load_font(const std::string& fontname) -> std::optional<GLFont>
   constexpr int kCharEnd = 128;
   constexpr int kCharCount = kCharEnd - kCharBeg;
   const int kBitmapPixelSize = std::sqrt(kPixelHeight * kPixelHeight * (2.f/3.f) * kCharCount) * kOversampling;
-  uint8_t bitmap[kBitmapPixelSize * kBitmapPixelSize];
+  auto bitmap = std::make_unique<uint8_t[]>(kBitmapPixelSize * kBitmapPixelSize);
   stbtt_pack_context pack_ctx;
   stbtt_packedchar packed_chars[kCharCount];
-  stbtt_PackBegin(&pack_ctx, bitmap, kBitmapPixelSize, kBitmapPixelSize, kStride, kPadding, nullptr);
+  stbtt_PackBegin(&pack_ctx, bitmap.get(), kBitmapPixelSize, kBitmapPixelSize, kStride, kPadding, nullptr);
   stbtt_PackSetOversampling(&pack_ctx, kOversampling, kOversampling);
   int ret = stbtt_PackFontRange(&pack_ctx, (const uint8_t*)font->data(), 0, STBTT_POINT_SIZE(kPixelHeight), kCharBeg, kCharCount, packed_chars);
   if (ret <= 0) WARN("Font '{}': Some characters may not have fit in the font bitmap!", fontname);
@@ -667,16 +686,16 @@ auto load_font(const std::string& fontname) -> std::optional<GLFont>
   std::vector<stbtt_packedchar> chars;
   chars.reserve(kCharCount);
   std::copy_n(packed_chars, kCharCount, std::back_inserter(chars));
-  GLTexture texture = load_font_texture(bitmap, kBitmapPixelSize, kBitmapPixelSize);
-  return GLFont{ 
-    .texture = std::move(texture),
-    .bitmap_px_width = kBitmapPixelSize,
-    .bitmap_px_height = kBitmapPixelSize,
-    .char_beg = kCharBeg,
-    .char_count = kCharCount,
-    .chars = std::move(chars),
-    .pixel_height = kPixelHeight,
-  };
+  GLTexture texture = load_font_texture(bitmap.get(), kBitmapPixelSize, kBitmapPixelSize);
+  GLFont glfont;
+  glfont.texture = std::move(texture);
+  glfont.bitmap_px_width = kBitmapPixelSize;
+  glfont.bitmap_px_height = kBitmapPixelSize;
+  glfont.char_beg = kCharBeg;
+  glfont.char_count = kCharCount;
+  glfont.chars = std::move(chars);
+  glfont.pixel_height = kPixelHeight;
+  return glfont;
 }
 
 /// Holds the fonts used by the game
@@ -691,13 +710,13 @@ struct Fonts {
 /// Loads all fonts used by the game
 Fonts load_fonts()
 {
-  return {
-    .menlo = std::make_shared<GLFont>(*ASSERT_RET(load_font("Menlo-Regular.ttf"))),
-    .jetbrains = std::make_shared<GLFont>(*ASSERT_RET(load_font("JetBrainsMono-Regular.ttf"))),
-    .google_sans = std::make_shared<GLFont>(*ASSERT_RET(load_font("GoogleSans-Regular.ttf"))),
-    .kanit = std::make_shared<GLFont>(*ASSERT_RET(load_font("Kanit/Kanit-Bold.ttf"))),
-    .russo_one = std::make_shared<GLFont>(*ASSERT_RET(load_font("Russo_One/RussoOne-Regular.ttf"))),
-  };
+  Fonts fonts;
+  fonts.menlo = std::make_shared<GLFont>(*ASSERT_RET(load_font("Menlo-Regular.ttf")));
+  fonts.jetbrains = std::make_shared<GLFont>(*ASSERT_RET(load_font("JetBrainsMono-Regular.ttf")));
+  fonts.google_sans = std::make_shared<GLFont>(*ASSERT_RET(load_font("GoogleSans-Regular.ttf")));
+  fonts.kanit = std::make_shared<GLFont>(*ASSERT_RET(load_font("Kanit/Kanit-Bold.ttf")));
+  fonts.russo_one = std::make_shared<GLFont>(*ASSERT_RET(load_font("Russo_One/RussoOne-Regular.ttf")));
+  return fonts;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -758,6 +777,7 @@ auto update_text_globject(const GLShader& shader, GLObject& glo, const GLFont& f
 struct ALBuffer {
   UniqueNum<ALuint> id;
 
+  ALBuffer() = default;
   ~ALBuffer() {
     if (id) alDeleteBuffers(1, &id.inner);
   }
@@ -795,7 +815,9 @@ auto load_wav_audio(const std::string& audiopath) -> std::optional<ALBuffer>
     return std::nullopt;
   } 
   drwav_free(data, NULL);
-  return ALBuffer{ abo };
+  ALBuffer albuffer;
+  albuffer.id = abo;
+  return albuffer;
 }
 
 /// Represents the origin of an audio sound in the world position, that's the play source of an audio buffer
@@ -803,6 +825,7 @@ struct ALSource {
   UniqueNum<ALuint> id;
   ALBufferRef buf;
 
+  ALSource() = default;
   ~ALSource() {
     if (id) alDeleteSources(1, &id.inner);
   }
@@ -834,7 +857,9 @@ ALSource create_audio_source(float gain)
   alSource3f(aso, AL_POSITION, 0.0f, 0.0f, 0.0f);
   alSource3f(aso, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
   alSourcei(aso, AL_LOOPING, AL_FALSE);
-  return ALSource{ aso };
+  ALSource alsource;
+  alsource.id = aso;
+  return alsource;
 }
 
 /// Holds the audio buffers used by the game
@@ -869,10 +894,10 @@ struct Camera {
   static Camera create(float aspect_ratio) {
     const float zoom_level = 1.0f;
     const float rotation = 0.0f;
-    return {
-      .projection = glm::ortho(-aspect_ratio * zoom_level, +aspect_ratio * zoom_level, -zoom_level, +zoom_level, +1.0f, -1.0f),
-      .view = glm::inverse(glm::rotate(glm::mat4(1.0f), glm::radians(rotation), glm::vec3(0, 0, 1))),
-    };
+    Camera camera;
+    camera.projection = glm::ortho(-aspect_ratio * zoom_level, +aspect_ratio * zoom_level, -zoom_level, +zoom_level, +1.0f, -1.0f);
+    camera.view = glm::inverse(glm::rotate(glm::mat4(1.0f), glm::radians(rotation), glm::vec3(0, 0, 1)));
+    return camera;
   }
 };
 
@@ -972,7 +997,10 @@ struct Aabb {
   Aabb transform(const glm::mat4& matrix) const {
     glm::vec2 a = matrix * glm::vec4(min, 0.0f, 1.0f);
     glm::vec2 b = matrix * glm::vec4(max, 0.0f, 1.0f);
-    return Aabb{glm::min(a, b), glm::max(a, b)};
+    Aabb aabb;
+    aabb.min = glm::min(a, b);
+    aabb.max = glm::max(a, b);
+    return aabb;
   }
 };
 
@@ -1724,7 +1752,8 @@ int game_loop(GLFWwindow* window)
     float next_loop_time_diff_us = std::min(timestep - update_lag, render_interval - render_lag);
     next_loop_time_diff_us *= 1'000'000.f;
     if (next_loop_time_diff_us > 10.f)
-      usleep(next_loop_time_diff_us / 2.f);
+      std::this_thread::sleep_for(std::chrono::duration<float, std::micro>(next_loop_time_diff_us / 2.f));
+      // TODO: use sleep_until
   }
 
   return 0;

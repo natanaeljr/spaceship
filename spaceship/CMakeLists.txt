@@ -26,11 +26,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(OpenGL_GL_PREFERENCE "GLVND")
 
 # Default compilation settings
-set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -pg -fsanitize=undefined -Werror -Wall")
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+
+if(MSVC)
+ set(CMAKE_CXX_STANDARD 20)
+ set(CMAKE_CXX_FLAGS_DEBUG "/W3 /MDd /DEBUG /Z7")
+ set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG")
+else() # clang and gcc
+ set(CMAKE_CXX_STANDARD 17)
+ set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -pg -fsanitize=undefined -Werror -Wall")
+ set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+endif()
 
 #########################################################################################
 # Dependencies
