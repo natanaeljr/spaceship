@@ -1,7 +1,7 @@
 spaceship
 ===
 
-My first serious game, built from the ground up.
+Simple 2d spaceshooter game, built from the ground up with only C++, modern OpenGL and a few libs.
 
 This is a build setup for linux.
 
