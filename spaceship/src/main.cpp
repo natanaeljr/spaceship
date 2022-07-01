@@ -1074,7 +1074,17 @@ struct ScreenBound { };
 
 /// Delay Erasing component
 struct DelayErasing {
-  bool sound = true;
+  bool sound = false;
+};
+
+/// Damage Factor component
+struct DamageFactor {
+  float value;
+};
+
+/// Health component
+struct Health {
+  float value;
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1096,6 +1106,8 @@ struct GameObject {
   std::optional<ScreenBound> screen_bound;
   std::optional<ALSourceRef> sound;
   std::optional<DelayErasing> delay_erasing;
+  std::optional<DamageFactor> damage_factor;
+  std::optional<Health> health;
 };
 
 /// Lists of all Game Objects in a Scene, divised in layers, in order of render
@@ -1205,6 +1217,7 @@ GameObject create_player_projectile(Game& game)
   obj.offscreen_destroy = OffScreenDestroy{};
   obj.sound = std::make_shared<ALSource>(create_audio_source(0.8f));
   obj.sound->get()->bind_buffer(*ASSERT_RET(game.audios->get_or_load("laser-14729.wav")));
+  obj.damage_factor = DamageFactor{1.f};
   return obj;
 }
 
@@ -1330,6 +1343,7 @@ int game_init(Game& game, GLFWwindow* window)
       obj.transform.position.x = std::sin(time) * 0.4f;
     }};
     enemy.aabb = Aabb{ .min = {-0.55f, -0.50f}, .max = {0.55f, 0.50f} };
+    enemy.health = Health{10};
   };
 
   { // FPS
@@ -1468,7 +1482,7 @@ void game_update(Game& game, float dt, float time)
         Aabb obj_aabb = obj.aabb->transform(obj.transform.matrix());
         if (!collision(obj_aabb, game.screen_aabb)) {
           if (!obj.delay_erasing)
-            obj.delay_erasing = DelayErasing{};
+            obj.delay_erasing = DelayErasing{.sound = true};
         }
       }
       // Screen Bound system
@@ -1492,17 +1506,37 @@ void game_update(Game& game, float dt, float time)
         Aabb projectile_aabb = projectile.aabb->transform(projectile.transform.matrix());
         Aabb spaceship_aabb = spaceship->aabb->transform(spaceship->transform.matrix());
         if (collision(projectile_aabb, spaceship_aabb)) {
+          // explosion
           GameObject explosion = create_explosion(game);
           explosion.transform.position = projectile.transform.position;
           explosion.prev_transform = explosion.transform;
           explosion.sound->get()->play();
           game.scene->objects.explosion.emplace_back(std::move(explosion));
+          // destroy projectile
           if (!projectile.delay_erasing) {
             projectile.delay_erasing = DelayErasing{.sound = true};
             projectile.transform = Transform{
-              .position = glm::vec2(1000.0f),
+              .position = glm::vec2(1000.0f), // TODO: fix this
             };
             projectile.prev_transform = projectile.transform;
+          }
+          // descrease spaceship health and destroy
+          if (spaceship->health && projectile.damage_factor) {
+            spaceship->health->value -= projectile.damage_factor->value;
+            if (spaceship->health->value <= 0) {
+              // explosion
+              GameObject explosion = create_explosion(game);
+              explosion.transform.position = spaceship->transform.position;
+              explosion.prev_transform = explosion.transform;
+              explosion.sound->get()->play();
+              game.scene->objects.explosion.emplace_back(std::move(explosion));
+              // destroy spaceship
+              spaceship->delay_erasing = DelayErasing{.sound = false};
+              spaceship->transform = Transform{
+                .position = glm::vec2(3000.0f), // TODO: fix this
+              };
+              spaceship->prev_transform = projectile.transform;
+            }
           }
         }
       }
