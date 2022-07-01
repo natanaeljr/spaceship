@@ -1085,6 +1085,16 @@ struct DamageFactor {
 /// Health component
 struct Health {
   float value;
+  float max_value;
+
+  auto tie() const { return std::tie(value, max_value); }
+};
+
+/// Health Bar component
+struct HealthBar {
+  Health health;       // rendered health
+  Transform transform; // offset to main object's position
+  GLObjectRef glo;
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1108,6 +1118,7 @@ struct GameObject {
   std::optional<DelayErasing> delay_erasing;
   std::optional<DamageFactor> damage_factor;
   std::optional<Health> health;
+  std::optional<HealthBar> health_bar;
 };
 
 /// Lists of all Game Objects in a Scene, divised in layers, in order of render
@@ -1219,6 +1230,38 @@ GameObject create_player_projectile(Game& game)
   obj.sound->get()->bind_buffer(*ASSERT_RET(game.audios->get_or_load("laser-14729.wav")));
   obj.damage_factor = DamageFactor{1.f};
   return obj;
+}
+
+// Update or create Health Bar GLO for given the health value
+GLObject* update_health_bar_glo(const GLShader& shader, const Health& health, GLObject* glo)
+{
+  const float k = health.value / health.max_value;
+  const std::array<ColorVertex, 8> vertices = {
+    // bg
+    ColorVertex{ .pos = { +1.0f, +1.0f }, .color = { 0.0f, 0.0f, 0.0f, 1.0f } },
+    ColorVertex{ .pos = { +1.0f, -1.0f }, .color = { 0.0f, 0.0f, 0.0f, 1.0f } },
+    ColorVertex{ .pos = { -1.0f, -1.0f }, .color = { 0.0f, 0.0f, 0.0f, 1.0f } },
+    ColorVertex{ .pos = { -1.0f, +1.0f }, .color = { 0.0f, 0.0f, 0.0f, 1.0f } },
+    // fg
+    ColorVertex{ .pos = { +0.9f * 2.f * k -0.9f, +0.7f }, .color = { 1.f - k, k, 0.0f, 1.0f } },
+    ColorVertex{ .pos = { +0.9f * 2.f * k -0.9f, -0.7f }, .color = { 1.f - k, k, 0.0f, 1.0f } },
+    ColorVertex{ .pos = { -0.9f,                 -0.7f }, .color = { 1.f - k, k, 0.0f, 1.0f } },
+    ColorVertex{ .pos = { -0.9f,                 +0.7f }, .color = { 1.f - k, k, 0.0f, 1.0f } },
+  };
+  const std::array<GLushort, 12> indices = {
+    0, 1, 3, 1, 2, 3,
+    4, 5, 7, 5, 6, 7,
+  };
+  if (glo && vertices.size() == glo->num_vertices && indices.size() == glo->num_indices) {
+    glBindVertexArray(glo->vao);
+    glBindBuffer(GL_ARRAY_BUFFER, glo->vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, vertices.size() * sizeof(ColorVertex), vertices.data());
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, glo->ebo);
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, indices.size() * sizeof(GLushort), indices.data());
+  } else {
+    glo = new GLObject(create_colored_globject(shader, vertices, indices));
+  }
+  return glo;
 }
 
 int game_init(Game& game, GLFWwindow* window)
@@ -1343,7 +1386,12 @@ int game_init(Game& game, GLFWwindow* window)
       obj.transform.position.x = std::sin(time) * 0.4f;
     }};
     enemy.aabb = Aabb{ .min = {-0.55f, -0.50f}, .max = {0.55f, 0.50f} };
-    enemy.health = Health{10};
+    enemy.health = Health{.value = 50, .max_value = 50};
+    enemy.health_bar = HealthBar{
+      .health = *enemy.health,
+      .transform = Transform{.position = {0.f, +0.11f}, .scale = {0.06f, 0.011f}},
+      .glo = std::shared_ptr<GLObject>(update_health_bar_glo(game.shaders->generic_shader, *enemy.health, nullptr)),
+    };
   };
 
   { // FPS
@@ -1492,6 +1540,13 @@ void game_update(Game& game, float dt, float time)
         if (pos.y < game.screen_aabb.min.y) pos.y = game.screen_aabb.min.y;
         if (pos.x > game.screen_aabb.max.x) pos.x = game.screen_aabb.max.x;
         if (pos.y > game.screen_aabb.max.y) pos.y = game.screen_aabb.max.y;
+      }
+      // Health Bar system
+      if (obj.health && obj.health_bar) {
+        if (obj.health->tie() != obj.health_bar->health.tie()) {
+          obj.health_bar->health = *obj.health;
+          update_health_bar_glo(game.shaders->generic_shader, *obj.health, obj.health_bar->glo.get());
+        }
       }
     }
   }
@@ -1681,6 +1736,12 @@ void game_render(Game& game, float frame_time, float alpha)
       }
       else {
         draw_colored_object(generic_shader, *obj->glo, transform.matrix());
+      }
+      // Health Bar
+      if (obj->health_bar) {
+        auto transform_child = obj->health_bar->transform;
+        transform_child.position = transform.position + transform_child.position;
+        draw_colored_object(generic_shader, *obj->health_bar->glo, transform_child.matrix());
       }
     }
   }
