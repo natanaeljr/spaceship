@@ -897,13 +897,13 @@ void set_camera(const GLShader& shader, const Camera& camera)
 }
 
 /// Render a colored GLObject with indices
-void draw_colored_object(const GLShader& shader, const GLObject& glo, const glm::mat4& model)
+void draw_colored_object(const GLShader& shader, const GLObject& glo, const glm::mat4& model, GLenum primitive = GL_TRIANGLES)
 {
   if (shader.unif_loc(GLUnif::SUBROUTINE) != -1)
     glUniform1i(shader.unif_loc(GLUnif::SUBROUTINE), static_cast<int>(GLSub::COLOR));
   glUniformMatrix4fv(shader.unif_loc(GLUnif::MODEL), 1, GL_FALSE, glm::value_ptr(model));
   glBindVertexArray(glo.vao);
-  glDrawElements(GL_TRIANGLES, glo.num_indices, GL_UNSIGNED_SHORT, nullptr);
+  glDrawElements(primitive, glo.num_indices, GL_UNSIGNED_SHORT, nullptr);
 }
 
 /// Render a textured GLObject with indices
@@ -1014,7 +1014,7 @@ glm::vec2 normalized_cursor_pos(glm::vec2 cursor, glm::uvec2 viewport_size, glm:
 
 /// Tag component
 struct Tag {
-  char label[20] = "?";
+  char label[32] = "?";
 };
 
 /// Transform component
@@ -1588,14 +1588,14 @@ void immediate_draw_text(const GLShader &shader, const std::string_view text, co
   transform.scale.y = -transform.scale.y;
   if (position) transform.position = *position;
   else /*center*/ transform.position.x -= transform.scale.x * (width / 2.f);
-  draw_text_object(shader, font.texture, glo, transform.matrix(), kWhite, kBlack, 1.f);
+  draw_text_object(shader, font.texture, glo, transform.matrix(), color, outline_color, outline_thickness);
 }
 
 /// Render AABBs for all objects that have it
 void render_aabbs(Game& game, GLShader& generic_shader)
 {
-  glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-  auto bbox_glo = create_colored_globject(generic_shader, kColorQuadVertices, kQuadIndices, GL_STREAM_DRAW);
+  GLushort indices[] = {0, 1, 2, 3}; // LINE_LOOP quad indices
+  auto bbox_glo = create_colored_globject(generic_shader, kColorQuadVertices, indices, GL_STREAM_DRAW);
   for (auto* object_list : game.scene->objects.all_lists()) {
     for (auto obj = object_list->rbegin(); obj != object_list->rend(); obj++) {
       if (obj->aabb) {
@@ -1609,11 +1609,10 @@ void render_aabbs(Game& game, GLShader& generic_shader)
         glBindVertexArray(bbox_glo.vao);
         glBindBuffer(GL_ARRAY_BUFFER, bbox_glo.vbo);
         glBufferSubData(GL_ARRAY_BUFFER, 0, vertices.size() * sizeof(ColorVertex), vertices.data());
-        draw_colored_object(generic_shader, bbox_glo, obj->transform.matrix());
+        draw_colored_object(generic_shader, bbox_glo, obj->transform.matrix(), GL_LINE_LOOP);
       }
     }
   }
-  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
 void game_render(Game& game, float frame_time, float alpha)
@@ -1958,7 +1957,7 @@ int create_window(GLFWwindow*& window)
 
   // settings
   glfwSetWindowAspectRatio(window, kWidth, kHeight);
-  glfwSwapInterval(0); // vsync
+  glfwSwapInterval(0);
 
   return 0;
 }

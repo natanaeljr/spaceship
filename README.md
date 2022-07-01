@@ -79,6 +79,10 @@ cmake --build . --parallel $(nproc)
    * Game State FSM
    * Game Start screen
    * Game Over screen
+- [ ] Serialization
+   * Components
+   * Scene
+   * Game state
 - [ ] Optimization
    * Instanced Rendering
    * OpenGL 4.5 DSA
